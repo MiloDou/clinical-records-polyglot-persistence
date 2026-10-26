@@ -22,7 +22,26 @@ La entrega académica presentada como base de este repositorio desarrolla los mo
 
 ## Estado
 
-El material de referencia corresponde a la fase de análisis y modelado. Este repositorio aún no contiene una aplicación ejecutable ni adaptadores de base de datos. La descripción distingue lo presentado en la entrega base de las capacidades previstas para el proyecto completo.
+El repositorio contiene una primera interfaz web ejecutable, con una portada editorial y un espacio de trabajo para las cuatro instituciones. Esta fase presenta los flujos y sus estados vacíos; no incluye autenticación, API, reglas de negocio de servidor ni persistencia. Los botones de búsqueda y registro informan que no hay servidor conectado y no guardan datos.
+
+## Frontend
+
+El cliente está en `src/` y usa React, TypeScript, Vite y CSS. Para ejecutarlo localmente:
+
+```bash
+npm install
+npm run dev
+```
+
+Para generar la compilación de producción:
+
+```bash
+npm run build
+```
+
+La navegación, las instituciones y los estados vacíos están descritos en [`docs/frontend/arquitectura.md`](docs/frontend/arquitectura.md). La interfaz y su guía visual están en [`docs/frontend/guia-estilo-sovietico-sputnik3.md`](docs/frontend/guia-estilo-sovietico-sputnik3.md).
+
+La revisión UX/UI y las evidencias y límites de QA están en [`docs/frontend/revision-ux-qa.md`](docs/frontend/revision-ux-qa.md).
 
 ## Trabajo pendiente
 

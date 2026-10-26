@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.DS_Store
+*.tsbuildinfo
+.impeccable/build/
+.impeccable/questions/
+.impeccable/hook.cache.json
+.impeccable/*
+!.impeccable/mocks/
+!.impeccable/mocks/decision/
+.impeccable/mocks/decision/*
+!.impeccable/mocks/decision/care-operations-index.png
+!.impeccable/mocks/decision/care-operations-index.prompt.json
+!.impeccable/mocks/decision/care-operations-index.prompt.md
