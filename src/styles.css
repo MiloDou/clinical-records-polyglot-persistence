@@ -30,12 +30,6 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px s
 
 /* Editorial entry: the political statement belongs to the threshold, not the clinical controls. */
 .manifest-page { display: flex; min-height: 100svh; flex-direction: column; background: var(--ink); color: var(--surface); overflow: hidden; }
-.manifest-topbar { height: 70px; padding: 0 4.2vw; display: flex; align-items: center; border-bottom: 1px solid #5a5752; gap: 28px; }
-.manifest-wordmark { display: flex; align-items: center; gap: 12px; font-size: 13px; font-weight: 700; letter-spacing: .12em; }
-.manifest-wordmark b { color: var(--signal-red); padding: 0 3px; }
-.wordmark-orbit { display: grid; place-items: center; color: var(--signal-red); }
-.manifest-edition { margin-left: auto; color: #c5c0b6; font-size: 10px; letter-spacing: .14em; }
-.manifest-index { padding: 24px 0 24px 25px; border-left: 1px solid #5a5752; font-size: 11px; font-variant-numeric: tabular-nums; }
 .manifest-layout { width: min(1520px, 91.6vw); margin: auto; padding: 6.2vh 0 5vh; display: grid; grid-template-columns: minmax(450px, .95fr) minmax(400px, 1.05fr); align-items: center; gap: clamp(40px, 6.4vw, 112px); }
 .manifest-copy { position: relative; z-index: 1; }
 .manifest-kicker { display: flex; align-items: center; gap: 10px; margin: 0 0 25px; color: #d2cfc8; font-size: 10px; letter-spacing: .2em; }
@@ -54,7 +48,6 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px s
 .manifest-artwork figcaption { position: absolute; z-index: 1; bottom: 17px; left: 18px; right: 18px; display: flex; justify-content: space-between; gap: 12px; color: #f1e6c8; font-size: 9px; letter-spacing: .16em; }
 .artwork-stamp { position: absolute; z-index: 1; right: 18px; top: 18px; width: 88px; height: 88px; display: grid; place-content: center; gap: 4px; border: 1px solid rgba(241,230,200,.75); border-radius: 50%; color: var(--paper); text-align: center; transform: rotate(8deg); }
 .artwork-stamp span { font-size: 7px; line-height: 1.2; letter-spacing: .13em; }
-.manifest-footer { min-height: 56px; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 0 4.2vw; border-top: 1px solid #5a5752; color: #bcb8b0; font-size: 9px; letter-spacing: .13em; }
 
 /* Clinical workbench: restrained paper surface, stable dark rail, direct controls. */
 .app-shell { display: flex; min-height: 100svh; background: var(--surface); }
@@ -198,15 +191,10 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px s
 }
 
 @media (max-width: 760px) {
-  .manifest-topbar { height: 58px; padding: 0 20px; }
-  .manifest-edition { display: none; }
-  .manifest-index { margin-left: auto; padding: 20px 0 20px 16px; }
   .manifest-layout { width: auto; margin: 0; padding: 38px 22px 28px; grid-template-columns: 1fr; gap: 27px; }
   .manifest-copy h1 { font-size: clamp(5.6rem, 18vw, 8.5rem); line-height: .72; }
   .manifest-lede { max-width: 54ch; margin: 22px 0; font-size: 14px; }
   .manifest-artwork { min-height: 270px; height: 52vw; max-height: 390px; }
-  .manifest-footer { min-height: 60px; flex-wrap: wrap; justify-content: flex-start; padding: 12px 20px; gap: 7px 17px; font-size: 8px; }
-  .manifest-footer span:nth-child(2) { display: none; }
 
   .sidebar { z-index: 30; width: min(300px, calc(100vw - 52px)); transform: translateX(-105%); transition: transform .2s ease; box-shadow: 12px 0 28px rgba(0,0,0,.24); }
   .sidebar { visibility: hidden; }

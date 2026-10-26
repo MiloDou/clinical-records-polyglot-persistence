@@ -201,11 +201,6 @@ function App() {
 function Manifest({ onEnter }: { onEnter: () => void }) {
   return (
     <main className="manifest-page">
-      <header className="manifest-topbar">
-        <div className="manifest-wordmark"><span className="wordmark-orbit"><Orbit size={19} /></span><span>SPU <b>×</b> DERECHO</span></div>
-        <span className="manifest-edition">PLATAFORMA CLÍNICA · GUATEMALA</span>
-        <span className="manifest-index">01 / 04</span>
-      </header>
       <div className="manifest-layout">
         <section className="manifest-copy">
           <p className="manifest-kicker"><span /> DECLARACIÓN PÚBLICA</p>
@@ -220,7 +215,6 @@ function Manifest({ onEnter }: { onEnter: () => void }) {
           <div className="artwork-stamp" aria-hidden="true"><ShieldCheck size={20} /><span>PARA<br />TODAS<br />Y TODOS</span></div>
         </figure>
       </div>
-      <footer className="manifest-footer"><span>SALUD PÚBLICA UNIVERSAL</span><span>LA TECNOLOGÍA AL SERVICIO DE LA VIDA</span><span>ESTADO DE CONEXIÓN · NO INICIADA</span></footer>
     </main>
   )
 }
