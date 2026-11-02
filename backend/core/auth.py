@@ -135,3 +135,4 @@ def get_current_institution(claims: Dict[str, Any] = Depends(get_current_user_cl
             detail="El token no contiene la institución asignada"
         )
     return normalize_institution(inst)
+

@@ -31,3 +31,4 @@ def login(datos: LoginIn):
         usuario=user["usuario"],
         rol=user["rol"],
     )
+

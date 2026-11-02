@@ -24,3 +24,4 @@ def obtener_historial_completo(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error al consultar historial clínico: {str(e)}",
         )
+

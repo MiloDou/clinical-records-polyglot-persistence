@@ -49,3 +49,4 @@ class IRepository(Protocol):
     def archivar_historial(self, id_paciente: Any) -> bool:
         """Cambia el estado del paciente o expediente a 'archivado' (baja administrativa)."""
         ...
+

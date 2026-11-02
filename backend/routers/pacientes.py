@@ -53,3 +53,4 @@ def archivar_historial(
         "id_paciente": id_paciente,
         "archivado": True,
     }
+

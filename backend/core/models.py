@@ -116,3 +116,4 @@ class HistorialOut(BaseSchema):
     controles_crecimiento: List[Any] = Field(default_factory=list)
     vacunas: List[Any] = Field(default_factory=list)
     procedimientos_dentales: List[Any] = Field(default_factory=list)
+

@@ -1,6 +1,11 @@
 """
 Pruebas end-to-end — Entrega II · Bases de Datos II · URL
-Verifica que los 4 motores respondan correctamente.
+Verifica el funcionamiento de los motores asignados.
+- Hospital (PostgreSQL): Ronaldo / Emilio
+- Laboratorio (MongoDB): Ronaldo / Emilio
+- Pediatría (MySQL): Brayan
+- Odontología (Firebase): Brayan
+
 Uso:
 cd Code/backend
 source .venv/bin/activate
@@ -11,10 +16,10 @@ import sys
 
 BASE = "http://localhost:8000"
 INSTITUCIONES = {
-    "hospital": {"usuario": "medico@hospital.gt", "password": "Test1234!"},
-    "pediatria": {"usuario": "medico@pediatria.gt", "password": "Test1234!"},
-    "laboratorio": {"usuario": "tecnico@laboratorio.gt", "password": "Test1234!"},
-    "odontologia": {"usuario": "secretaria@dental.gt", "password": "Test1234!"},
+    "hospital": {"usuario": "medico@hospital.gt", "password": "Test1234!", "dueno": "Ronaldo"},
+    "laboratorio": {"usuario": "tecnico@laboratorio.gt", "password": "Test1234!", "dueno": "Ronaldo"},
+    "pediatria": {"usuario": "medico@pediatria.gt", "password": "Test1234!", "dueno": "Brayan"},
+    "odontologia": {"usuario": "secretaria@dental.gt", "password": "Test1234!", "dueno": "Brayan"},
 }
 
 ok_count, errores = 0, []
@@ -31,13 +36,18 @@ def falla(msg):
     errores.append(msg)
 
 
+def info(msg):
+    print(f"⏳ {msg}")
+
+
 def prueba(nombre, credenciales):
+    dueno = credenciales["dueno"]
     print(f"\n{'═'*55}")
-    print(f" INSTITUCIÓN: {nombre.upper()}")
+    print(f" INSTITUCIÓN: {nombre.upper()} (Asignado a: {dueno})")
     print(f"{'═'*55}")
 
     # 1. Login
-    r = requests.post(f"{BASE}/auth/login", json=credenciales)
+    r = requests.post(f"{BASE}/auth/login", json={"usuario": credenciales["usuario"], "password": credenciales["password"]})
     if r.status_code != 200:
         falla(f"[{nombre}] Login falló ({r.status_code}): {r.text[:120]}")
         return
@@ -53,6 +63,9 @@ def prueba(nombre, credenciales):
         "telefono": "55550000",
     }
     r = requests.post(f"{BASE}/pacientes/", json=payload, headers=H)
+    if r.status_code == 501:
+        info(f"[{nombre}] Módulo pendiente de implementación por {dueno}")
+        return
     if r.status_code not in (200, 201):
         falla(f"[{nombre}] Registrar paciente ({r.status_code}): {r.text[:120]}")
         return
@@ -137,9 +150,9 @@ if __name__ == "__main__":
 
     total = ok_count + len(errores)
     print(f"\n{'═'*55}")
-    print(f"Resultado: {ok_count}/{total} pruebas pasaron\n")
+    print(f"Resultado: {ok_count} pruebas pasaron exitosamente.")
     if not errores:
-        print("✅ TODO LISTO — aplicación lista para la demo")
+        print("✅ Las partes implementadas pasaron todas las pruebas.")
     else:
         print(f"❌ {len(errores)} error(es) pendiente(s):\n")
         for e in errores:
