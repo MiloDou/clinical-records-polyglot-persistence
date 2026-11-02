@@ -12,3 +12,22 @@ dist/
 !.impeccable/mocks/decision/care-operations-index.png
 !.impeccable/mocks/decision/care-operations-index.prompt.json
 !.impeccable/mocks/decision/care-operations-index.prompt.md
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+backend/.venv/
+.venv/
+env/
+venv/
+ENV/
+*.env
+.env
+!backend/.env.example
+
+# Firebase
+serviceAccountKey.json
+backend/serviceAccountKey.json
