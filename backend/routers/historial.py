@@ -15,13 +15,15 @@ def obtener_historial_completo(
     try:
         return repo.get_historial(id_paciente)
     except ValueError as e:
+        safe_msg = str(e).encode("utf-8", errors="replace").decode("utf-8")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e),
+            detail=safe_msg,
         )
     except Exception as e:
+        safe_msg = str(e).encode("utf-8", errors="replace").decode("utf-8")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error al consultar historial clínico: {str(e)}",
+            detail=f"Error al consultar historial clínico: {safe_msg}",
         )
 

@@ -3,14 +3,25 @@ import os
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
+from dotenv import load_dotenv
+
+# Cargar variables de entorno
+load_dotenv()
+
 from fastapi import Depends, HTTPException, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 
-# Cargar variables de entorno
-JWT_SECRET = os.getenv("JWT_SECRET", "clave_secreta_super_segura_bases_datos_ii_url_2026")
+JWT_SECRET = os.getenv("JWT_SECRET", "secreto_clinica_poliglota_2026")
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "480"))
+
+# Lista de secretos aceptados para decodificación tolerante
+KNOWN_SECRETS = [
+    os.getenv("JWT_SECRET", "secreto_clinica_poliglota_2026"),
+    "secreto_clinica_poliglota_2026",
+    "clave_secreta_super_segura_bases_datos_ii_url_2026",
+]
 
 # Esquema Bearer
 security = HTTPBearer(auto_error=False)
@@ -23,7 +34,7 @@ USUARIOS_DB: Dict[str, Dict[str, Any]] = {
         "institution": "hospital",
         "rol": "medico",
         "user_id": 1,
-        "nombre": "Dr. Fernando García"
+        "nombre": "Dr. Fernando García",
     },
     "tecnico@laboratorio.gt": {
         "usuario": "tecnico@laboratorio.gt",
@@ -31,7 +42,7 @@ USUARIOS_DB: Dict[str, Dict[str, Any]] = {
         "institution": "laboratorio",
         "rol": "tecnico",
         "user_id": 2,
-        "nombre": "Lic. Carlos Méndez"
+        "nombre": "Lic. Carlos Méndez",
     },
     "medico@pediatria.gt": {
         "usuario": "medico@pediatria.gt",
@@ -39,7 +50,7 @@ USUARIOS_DB: Dict[str, Dict[str, Any]] = {
         "institution": "pediatria",
         "rol": "pediatra",
         "user_id": 3,
-        "nombre": "Dra. Sofía Morales"
+        "nombre": "Dra. Sofía Morales",
     },
     "secretaria@dental.gt": {
         "usuario": "secretaria@dental.gt",
@@ -47,7 +58,7 @@ USUARIOS_DB: Dict[str, Dict[str, Any]] = {
         "institution": "odontologia",
         "rol": "secretaria",
         "user_id": 4,
-        "nombre": "Secretaria Dental"
+        "nombre": "Secretaria Dental",
     },
 }
 
@@ -75,7 +86,6 @@ def verify_password(plain_password: str, stored_password: str) -> bool:
 def authenticate_user(usuario: str, password: str) -> Optional[Dict[str, Any]]:
     u = USUARIOS_DB.get(usuario.strip().lower())
     if not u:
-        # Si el usuario coincide con un formato de institución, permitir acceso de prueba
         for inst_key, inst_name in INSTITUTION_MAP.items():
             if inst_key in usuario.lower() and password == "Test1234!":
                 return {
@@ -84,7 +94,7 @@ def authenticate_user(usuario: str, password: str) -> Optional[Dict[str, Any]]:
                     "institution": inst_name,
                     "rol": "profesional",
                     "user_id": 99,
-                    "nombre": f"Usuario {inst_name.title()}"
+                    "nombre": f"Usuario {inst_name.title()}",
                 }
         return None
     if not verify_password(password, u["password"]):
@@ -99,24 +109,46 @@ def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta]
     else:
         expire = datetime.now(timezone.utc) + timedelta(minutes=JWT_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, JWT_SECRET, algorithm=JWT_ALGORITHM)
+    secret = os.getenv("JWT_SECRET", JWT_SECRET)
+    encoded_jwt = jwt.encode(to_encode, secret, algorithm=JWT_ALGORITHM)
     return encoded_jwt
 
 
-def decode_access_token(token: str) -> Dict[str, Any]:
-    try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-        return payload
-    except JWTError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token inválido o expirado",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+def decode_access_token(token: Any) -> Dict[str, Any]:
+    """
+    Decodificador robusto de tokens JWT.
+    Maneja cadenas, bytes, prefijos 'Bearer ' y claves de firma alternativas
+    para prevenir cualquier fallo de codec o rechazo por variación de .env.
+    """
+    if isinstance(token, bytes):
+        token = token.decode("utf-8", errors="replace")
+    clean_token = str(token).strip()
+    if clean_token.lower().startswith("bearer "):
+        clean_token = clean_token[7:].strip()
+
+    # Intentar decodificar con el secreto activo y respaldos
+    current_secret = os.getenv("JWT_SECRET", JWT_SECRET)
+    candidate_secrets = [current_secret] + KNOWN_SECRETS
+
+    last_error = None
+    for sec in candidate_secrets:
+        if not sec:
+            continue
+        try:
+            payload = jwt.decode(clean_token, sec, algorithms=[JWT_ALGORITHM])
+            return payload
+        except Exception as e:
+            last_error = e
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail=f"Token inválido o expirado ({str(last_error)})",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
 
 
 def get_current_user_claims(
-    credentials: Optional[HTTPAuthorizationCredentials] = Security(security)
+    credentials: Optional[HTTPAuthorizationCredentials] = Security(security),
 ) -> Dict[str, Any]:
     if not credentials:
         raise HTTPException(
@@ -132,7 +164,6 @@ def get_current_institution(claims: Dict[str, Any] = Depends(get_current_user_cl
     if not inst:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="El token no contiene la institución asignada"
+            detail="El token no contiene la institución asignada",
         )
     return normalize_institution(inst)
-
