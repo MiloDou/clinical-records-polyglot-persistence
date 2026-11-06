@@ -19,9 +19,10 @@ def registrar_paciente(
     except ConnectionError:
         raise
     except Exception as e:
+        safe_msg = str(e).encode("utf-8", errors="replace").decode("utf-8")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Error al registrar paciente: {str(e)}",
+            detail=f"Error al registrar paciente: {safe_msg}",
         )
 
 

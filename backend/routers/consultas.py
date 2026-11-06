@@ -27,9 +27,10 @@ def registrar_consulta(
     except ConnectionError:
         raise
     except Exception as e:
+        safe_msg = str(e).encode("utf-8", errors="replace").decode("utf-8")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Error al registrar consulta: {str(e)}",
+            detail=f"Error al registrar consulta: {safe_msg}",
         )
 
 
@@ -45,9 +46,10 @@ def agregar_diagnostico(
     except ConnectionError:
         raise
     except Exception as e:
+        safe_msg = str(e).encode("utf-8", errors="replace").decode("utf-8")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Error al agregar diagnóstico: {str(e)}",
+            detail=f"Error al agregar diagnóstico: {safe_msg}",
         )
 
 
@@ -63,8 +65,9 @@ def recetar_medicamento(
     except ConnectionError:
         raise
     except Exception as e:
+        safe_msg = str(e).encode("utf-8", errors="replace").decode("utf-8")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Error al recetar medicamento: {str(e)}",
+            detail=f"Error al recetar medicamento: {safe_msg}",
         )
 
