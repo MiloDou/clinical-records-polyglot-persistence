@@ -26,3 +26,5 @@ Thumbs.db
 # Frontend (por si se instalan librerías más adelante)
 node_modules/
 dist/
+
+*.sql
