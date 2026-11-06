@@ -3,7 +3,7 @@ from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 from bson import ObjectId
 import pymongo
-from pymongo.errors import ConnectionFailure, ServerSelectionTimeoutError
+from pymongo.errors import PyMongoError
 
 from core.models import (
     ConsultaIn,
@@ -17,78 +17,6 @@ from core.models import (
     RecetaOut,
 )
 from domain.ports import IRepository
-
-
-class InMemoryMongoCollection:
-    """Fallback en memoria con semántica documental MongoDB si mongod no está en ejecución."""
-    def __init__(self):
-        self.docs: Dict[str, Dict[str, Any]] = {}
-
-    def insert_one(self, doc: Dict[str, Any]):
-        new_doc = dict(doc)
-        if "_id" not in new_doc:
-            new_doc["_id"] = ObjectId()
-        oid_str = str(new_doc["_id"])
-        self.docs[oid_str] = new_doc
-        class Result:
-            inserted_id = new_doc["_id"]
-        return Result()
-
-    def find_one(self, query: Dict[str, Any]):
-        for doc in self.docs.values():
-            match = True
-            for k, v in query.items():
-                if k == "_id":
-                    if str(doc.get("_id")) != str(v):
-                        match = False
-                        break
-                elif doc.get(k) != v:
-                    match = False
-                    break
-            if match:
-                return dict(doc)
-        return None
-
-    def find(self, query: Dict[str, Any]):
-        results = []
-        for doc in self.docs.values():
-            match = True
-            for k, v in query.items():
-                if k == "_id":
-                    if str(doc.get("_id")) != str(v):
-                        match = False
-                        break
-                elif str(doc.get(k)) != str(v):
-                    match = False
-                    break
-            if match:
-                results.append(dict(doc))
-        return results
-
-    def update_one(self, query: Dict[str, Any], update: Dict[str, Any]):
-        doc = self.find_one(query)
-        if not doc:
-            class Result:
-                matched_count = 0
-                modified_count = 0
-            return Result()
-        
-        oid_str = str(doc["_id"])
-        target = self.docs[oid_str]
-        
-        if "$set" in update:
-            for k, v in update["$set"].items():
-                target[k] = v
-        if "$push" in update:
-            for k, v in update["$push"].items():
-                if k not in target or not isinstance(target[k], list):
-                    target[k] = []
-                target[k].append(v)
-                
-        class Result:
-            matched_count = 1
-            modified_count = 1
-        return Result()
 
 
 class LaboratorioMongoAdapter(IRepository):
@@ -109,38 +37,36 @@ class LaboratorioMongoAdapter(IRepository):
         self.db_name = db_name or os.getenv("MONGO_DB", "laboratorio_db")
         self.client: Optional[pymongo.MongoClient] = None
         self.db = None
-        self._is_live = False
-        
-        # In-memory storage si mongod no está disponible
-        self._fallback_pacientes = InMemoryMongoCollection()
-        self._fallback_ordenes = InMemoryMongoCollection()
 
-        self._connect()
-
-    def _connect(self):
+    def _get_db(self):
+        """
+        Devuelve la base de datos viva. Si mongod no responde lanza ConnectionError,
+        que el manejador global de FastAPI traduce a HTTP 503. Sin respaldo en memoria.
+        """
         try:
-            client = pymongo.MongoClient(self.uri, serverSelectionTimeoutMS=1500)
-            client.admin.command("ping")
-            self.client = client
-            self.db = client[self.db_name]
-            self._is_live = True
-            print(f"[LaboratorioMongoAdapter] Conectado exitosamente a MongoDB en {self.uri}/{self.db_name}")
-        except Exception:
-            self._is_live = False
+            if self.client is None:
+                self.client = pymongo.MongoClient(self.uri, serverSelectionTimeoutMS=1500)
+            self.client.admin.command("ping")
+        except PyMongoError as e:
+            self.client = None
             self.db = None
-            print(f"[LaboratorioMongoAdapter] MongoDB no disponible en {self.uri}. Operando con motor documental interno.")
+            raise ConnectionError(f"MongoDB no disponible en {self.uri}: {e}") from None
+        if self.db is None:
+            self.db = self.client[self.db_name]
+        return self.db
 
     @property
     def col_pacientes(self):
-        if self._is_live and self.db is not None:
-            return self.db["pacientes"]
-        return self._fallback_pacientes
+        return self._get_db()["pacientes"]
 
     @property
     def col_ordenes(self):
-        if self._is_live and self.db is not None:
-            return self.db["ordenes"]
-        return self._fallback_ordenes
+        return self._get_db()["ordenes"]
+
+    @staticmethod
+    def _id_query(value: Any) -> Dict[str, Any]:
+        s = str(value)
+        return {"_id": ObjectId(s)} if ObjectId.is_valid(s) else {"_id": s}
 
     # 1. Registrar paciente
     def registrar_paciente(self, datos: PacienteIn) -> PacienteOut:
@@ -211,6 +137,8 @@ class LaboratorioMongoAdapter(IRepository):
 
     # 3. Registrar consulta (orden de examen en laboratorio)
     def registrar_consulta(self, datos: ConsultaIn) -> ConsultaOut:
+        if not self.col_pacientes.find_one(self._id_query(datos.id_paciente)):
+            raise ValueError(f"Paciente con id {datos.id_paciente} no encontrado en Laboratorio")
         now_str = str(datetime.now())
         orden_doc = {
             "id_paciente": str(datos.id_paciente),
@@ -262,7 +190,9 @@ class LaboratorioMongoAdapter(IRepository):
         }
 
         query = {"_id": ObjectId(cid_str)} if ObjectId.is_valid(cid_str) else {"_id": cid_str}
-        self.col_ordenes.update_one(query, {"$push": {"diagnosticos": diag_entry}})
+        res = self.col_ordenes.update_one(query, {"$push": {"diagnosticos": diag_entry}})
+        if res.matched_count == 0:
+            raise ValueError(f"Orden/consulta con id {cid_str} no encontrada en Laboratorio")
 
         return DiagnosticoOut(
             id_diagnostico=diag_id,
@@ -285,7 +215,9 @@ class LaboratorioMongoAdapter(IRepository):
         }
 
         query = {"_id": ObjectId(cid_str)} if ObjectId.is_valid(cid_str) else {"_id": cid_str}
-        self.col_ordenes.update_one(query, {"$push": {"recetas": receta_entry}})
+        res = self.col_ordenes.update_one(query, {"$push": {"recetas": receta_entry}})
+        if res.matched_count == 0:
+            raise ValueError(f"Orden/consulta con id {cid_str} no encontrada en Laboratorio")
 
         return RecetaOut(
             id_receta=receta_id,

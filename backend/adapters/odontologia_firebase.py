@@ -3,8 +3,12 @@ import uuid
 from datetime import date, datetime
 from typing import Any, Dict, Optional
 
+import functools
+
 import firebase_admin
 from firebase_admin import credentials, firestore
+from google.api_core import exceptions as gexc
+from google.auth import exceptions as gauth_exc
 from google.cloud.firestore_v1.base_query import FieldFilter
 
 from core.models import (
@@ -21,6 +25,24 @@ from core.models import (
 from domain.ports import IRepository
 
 _APP_NAME = "odontologia"
+
+
+def _map_google_errors(fn):
+    """
+    Traduce fallas de Firestore/Google a excepciones del dominio:
+      - NotFound                      -> ValueError (HTTP 404)
+      - red, credenciales, timeouts   -> ConnectionError (HTTP 503 vía manejador global)
+    Los ValueError propios del adaptador (recurso inexistente) pasan intactos.
+    """
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except gexc.NotFound as e:
+            raise ValueError(f"Recurso no encontrado en Firestore: {e.message}") from None
+        except (gexc.GoogleAPIError, gauth_exc.GoogleAuthError) as e:
+            raise ConnectionError(f"Firebase Firestore no disponible: {e}") from None
+    return wrapper
 
 
 class OdontologiaFirebaseAdapter(IRepository):
@@ -44,16 +66,21 @@ class OdontologiaFirebaseAdapter(IRepository):
         """Inicializa firebase-admin de forma perezosa (una sola app con nombre propio)."""
         if self._db is None:
             try:
-                app = firebase_admin.get_app(_APP_NAME)
-            except ValueError:
-                if not os.path.isfile(self.credentials_path):
-                    raise RuntimeError(
-                        f"No se encontró la credencial de Firebase en '{self.credentials_path}'"
+                try:
+                    app = firebase_admin.get_app(_APP_NAME)
+                except ValueError:
+                    if not os.path.isfile(self.credentials_path):
+                        raise ConnectionError(
+                            f"Firebase no disponible: no se encontró la credencial en '{self.credentials_path}'"
+                        )
+                    app = firebase_admin.initialize_app(
+                        credentials.Certificate(self.credentials_path), name=_APP_NAME
                     )
-                app = firebase_admin.initialize_app(
-                    credentials.Certificate(self.credentials_path), name=_APP_NAME
-                )
-            self._db = firestore.client(app)
+                self._db = firestore.client(app)
+            except ConnectionError:
+                raise
+            except Exception as e:
+                raise ConnectionError(f"Firebase no se pudo inicializar: {e}") from None
         return self._db
 
     @staticmethod
@@ -252,3 +279,12 @@ class OdontologiaFirebaseAdapter(IRepository):
             return False
         ref.update({"estado": "archivado"})
         return True
+
+
+# Aplica la traducción de errores a los 7 métodos del contrato IRepository
+for _metodo in (
+    "registrar_paciente", "buscar_paciente", "get_historial", "registrar_consulta",
+    "agregar_diagnostico", "recetar_medicamento", "archivar_historial",
+):
+    setattr(OdontologiaFirebaseAdapter, _metodo,
+            _map_google_errors(getattr(OdontologiaFirebaseAdapter, _metodo)))

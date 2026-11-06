@@ -2,7 +2,9 @@ import os
 import re
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional
+import functools
 import psycopg2
+from psycopg2 import errors as pg_errors
 from psycopg2.extras import RealDictCursor
 
 from core.models import (
@@ -18,6 +20,17 @@ from core.models import (
 )
 from domain.ports import IRepository
 
+
+
+def _fk_a_not_found(fn):
+    """Una violación de llave foránea significa que el paciente/consulta referenciado no existe -> ValueError (404)."""
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except pg_errors.ForeignKeyViolation as e:
+            raise ValueError(f"Recurso referenciado no encontrado: {str(e).strip().splitlines()[-1]}") from None
+    return wrapper
 
 class HospitalPostgresAdapter(IRepository):
     """
@@ -42,14 +55,28 @@ class HospitalPostgresAdapter(IRepository):
         self._init_metadata()
 
     def get_connection(self):
-        return psycopg2.connect(
-            host=self.host,
-            port=self.port,
-            user=self.user,
-            password=self.password,
-            dbname=self.database,
-            cursor_factory=RealDictCursor,
-        )
+        """
+        Abre la conexión forzando client_encoding UTF8.
+        En Windows con PostgreSQL en español, libpq emite los errores de conexión
+        (p. ej. autenticación fallida) en cp1252/latin-1; psycopg2 intenta decodificarlos
+        como UTF-8 y lanza UnicodeDecodeError, ocultando la causa real. Aquí se recupera
+        el mensaje original y se relanza como ConnectionError legible.
+        """
+        try:
+            return psycopg2.connect(
+                host=self.host,
+                port=self.port,
+                user=self.user,
+                password=self.password,
+                dbname=self.database,
+                client_encoding="UTF8",
+                cursor_factory=RealDictCursor,
+            )
+        except UnicodeDecodeError as e:
+            mensaje = e.object.decode("cp1252", errors="replace").strip()
+            raise ConnectionError(f"PostgreSQL no disponible: {mensaje}") from None
+        except psycopg2.OperationalError as e:
+            raise ConnectionError(f"PostgreSQL no disponible: {str(e).strip()}") from None
 
     def _init_metadata(self):
         """Asegura catálogos y médico por defecto para evitar errores de clave foránea."""
@@ -335,7 +362,10 @@ class HospitalPostgresAdapter(IRepository):
 
     # 6. Obtener historial completo
     def get_historial(self, id_paciente: Any) -> HistorialOut:
-        pid = int(id_paciente)
+        try:
+            pid = int(id_paciente)
+        except (TypeError, ValueError):
+            raise ValueError(f"Paciente con id {id_paciente} no encontrado")
         with self.get_connection() as conn:
             with conn.cursor() as cur:
                 # Paciente
@@ -450,7 +480,10 @@ class HospitalPostgresAdapter(IRepository):
 
     # 7. Archivar historial
     def archivar_historial(self, id_paciente: Any) -> bool:
-        pid = int(id_paciente)
+        try:
+            pid = int(id_paciente)
+        except (TypeError, ValueError):
+            return False
         with self.get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -464,3 +497,8 @@ class HospitalPostgresAdapter(IRepository):
                 updated = cur.rowcount > 0
             conn.commit()
         return updated
+
+# Paciente/consulta inexistente -> ValueError (404) en lugar de error de integridad (400)
+for _metodo in ("registrar_consulta", "agregar_diagnostico", "recetar_medicamento"):
+    setattr(HospitalPostgresAdapter, _metodo, _fk_a_not_found(getattr(HospitalPostgresAdapter, _metodo)))
+

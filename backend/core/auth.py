@@ -1,4 +1,5 @@
 import hashlib
+import hmac
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
@@ -69,23 +70,13 @@ def normalize_institution(inst: str) -> str:
 
 
 def verify_password(plain_password: str, stored_password: str) -> bool:
-    return plain_password == stored_password
+    # Comparación en tiempo constante para evitar ataques de temporización
+    return hmac.compare_digest(plain_password.encode("utf-8"), stored_password.encode("utf-8"))
 
 
 def authenticate_user(usuario: str, password: str) -> Optional[Dict[str, Any]]:
     u = USUARIOS_DB.get(usuario.strip().lower())
     if not u:
-        # Si el usuario coincide con un formato de institución, permitir acceso de prueba
-        for inst_key, inst_name in INSTITUTION_MAP.items():
-            if inst_key in usuario.lower() and password == "Test1234!":
-                return {
-                    "usuario": usuario,
-                    "password": password,
-                    "institution": inst_name,
-                    "rol": "profesional",
-                    "user_id": 99,
-                    "nombre": f"Usuario {inst_name.title()}"
-                }
         return None
     if not verify_password(password, u["password"]):
         return None

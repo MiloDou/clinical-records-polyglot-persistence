@@ -16,11 +16,21 @@ app = FastAPI(
 # Configuración de CORS para el cliente Vite / React en localhost:5173
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Errores de conectividad con cualquier motor -> 503 (no 400/500 genérico)
+from fastapi import Request
+from fastapi.responses import JSONResponse
+
+
+@app.exception_handler(ConnectionError)
+async def connection_error_handler(request: Request, exc: ConnectionError):
+    return JSONResponse(status_code=503, content={"detail": str(exc)})
+
 
 # Registrar routers
 app.include_router(auth.router)

@@ -19,6 +19,8 @@ def obtener_historial_completo(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
         )
+    except ConnectionError:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

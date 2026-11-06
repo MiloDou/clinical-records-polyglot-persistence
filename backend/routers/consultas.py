@@ -22,6 +22,10 @@ def registrar_consulta(
 ):
     try:
         return repo.registrar_consulta(datos)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ConnectionError:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -36,6 +40,10 @@ def agregar_diagnostico(
 ):
     try:
         return repo.agregar_diagnostico(datos)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ConnectionError:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -50,6 +58,10 @@ def recetar_medicamento(
 ):
     try:
         return repo.recetar_medicamento(datos)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ConnectionError:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
