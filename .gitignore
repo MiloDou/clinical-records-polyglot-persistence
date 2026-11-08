@@ -31,3 +31,6 @@ ENV/
 # Firebase
 serviceAccountKey.json
 backend/serviceAccountKey.json
+
+# Herramientas locales
+.claude/

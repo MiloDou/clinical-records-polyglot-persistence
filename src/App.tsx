@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
-  ArrowRight, Check, CircleHelp, FileClock, Menu, Orbit, Plus, Search,
+  AlertTriangle, ArrowRight, Check, CheckCircle2, CircleHelp, FileClock, Menu, Orbit, Plus, Search,
   ShieldCheck, Signal, X,
 } from 'lucide-react'
 import {
@@ -21,75 +21,147 @@ const INSTITUTION_CREDENTIALS: Record<InstitutionId, { usuario: string; password
   dental: { usuario: 'secretaria@dental.gt', password: 'Test1234!', motor: 'Firebase Firestore' },
 }
 
-type Field = { name: string; label: string; placeholder?: string; type?: string; wide?: boolean }
+/* ── Cliente HTTP: un solo punto que traduce los códigos del backend a mensajes ── */
 
-const forms: Partial<Record<SectionId, Field[]>> = {
-  patients: [
-    { name: 'fullName', label: 'Nombre completo', placeholder: 'Nombre y apellidos', wide: true },
-    { name: 'document', label: 'Documento de identificación (DPI/CUI)', placeholder: 'Ej. TEST0001' },
-    { name: 'birthDate', label: 'Fecha de nacimiento', type: 'date' },
-    { name: 'contact', label: 'Teléfono de contacto', placeholder: 'Número de teléfono' },
-  ],
-  appointments: [
-    { name: 'patient', label: 'ID del paciente', placeholder: 'ID del paciente' },
-    { name: 'date', label: 'Fecha y hora', type: 'datetime-local' },
-    { name: 'service', label: 'Servicio', placeholder: 'Servicio o especialidad' },
-    { name: 'professional', label: 'Profesional responsable', placeholder: 'Nombre del profesional' },
-  ],
-  consultations: [
-    { name: 'patient', label: 'ID del paciente', placeholder: 'ID numérico o alfanumérico del paciente' },
-    { name: 'date', label: 'Fecha de consulta', type: 'date' },
-    { name: 'professional', label: 'Profesional responsable', placeholder: 'Nombre del profesional' },
-    { name: 'note', label: 'Motivo y notas de consulta', placeholder: 'Resumen clínico de la consulta', wide: true },
-  ],
-  diagnoses: [
-    { name: 'patient', label: 'ID de la consulta', placeholder: 'ID de la consulta a asociar' },
-    { name: 'code', label: 'Código CIE-10', placeholder: 'Ej. Z00.0' },
-    { name: 'diagnosis', label: 'Diagnóstico clínico', placeholder: 'Descripción clínica', wide: true },
-  ],
-  treatments: [
-    { name: 'patient', label: 'ID del paciente o consulta', placeholder: 'ID' },
-    { name: 'plan', label: 'Plan de tratamiento', placeholder: 'Descripción del tratamiento', wide: true },
-    { name: 'startDate', label: 'Fecha de inicio', type: 'date' },
-    { name: 'endDate', label: 'Fecha de seguimiento', type: 'date' },
-  ],
-  prescriptions: [
-    { name: 'patient', label: 'ID de la consulta', placeholder: 'ID de la consulta asociada' },
-    { name: 'medicine', label: 'Medicamento', placeholder: 'Nombre genérico del medicamento' },
-    { name: 'dose', label: 'Dosis e indicaciones', placeholder: 'Ej. 1 tableta cada 8 horas', wide: true },
-  ],
-  procedures: [
-    { name: 'patient', label: 'ID del paciente o atención', placeholder: 'ID' },
-    { name: 'area', label: 'Pieza o área dental', placeholder: 'Referencia de la pieza o zona' },
-    { name: 'procedure', label: 'Procedimiento', placeholder: 'Procedimiento realizado', wide: true },
-  ],
-  'lab-orders': [
-    { name: 'patient', label: 'ID del paciente', placeholder: 'ID del paciente' },
-    { name: 'exam', label: 'Examen solicitado', placeholder: 'Nombre del examen' },
-    { name: 'priority', label: 'Prioridad', placeholder: 'Ordinaria / urgente' },
-  ],
-  'lab-results': [
-    { name: 'order', label: 'Orden de examen', placeholder: 'Identificador de la orden' },
-  ],
-  growth: [
-    { name: 'patient', label: 'ID del paciente', placeholder: 'ID del paciente' },
-    { name: 'date', label: 'Fecha de control', type: 'date' },
-    { name: 'weight', label: 'Peso (kg)', type: 'number' },
-    { name: 'height', label: 'Talla (cm)', type: 'number' },
-    { name: 'head', label: 'Perímetro cefálico (cm)', type: 'number' },
-  ],
-  vaccines: [
-    { name: 'patient', label: 'ID del paciente', placeholder: 'ID del paciente' },
-    { name: 'vaccine', label: 'Vacuna', placeholder: 'Nombre de la vacuna' },
-    { name: 'dose', label: 'Dosis', placeholder: 'Número o nombre de la dosis' },
-    { name: 'date', label: 'Fecha de aplicación', type: 'date' },
-  ],
-  archive: [
-    { name: 'patient', label: 'ID del paciente a archivar', placeholder: 'ID del paciente' },
-    { name: 'date', label: 'Fecha de solicitud', type: 'date' },
-    { name: 'reason', label: 'Motivo de archivado', placeholder: 'Justificación de desactivación o baja', wide: true },
-  ],
+type Notice = { kind: 'ok' | 'error' | 'warn'; text: string }
+type ApiResult<T = any> = { ok: true; data: T } | { ok: false; status: number; message: string }
+
+async function apiRequest<T = any>(path: string, token: string | null, init: RequestInit = {}): Promise<ApiResult<T>> {
+  const headers: Record<string, string> = { ...(init.body ? { 'Content-Type': 'application/json' } : {}) }
+  if (token) headers.Authorization = `Bearer ${token}`
+  let res: Response
+  try {
+    res = await fetch(`${API_URL}${path}`, { ...init, headers: { ...headers, ...(init.headers as Record<string, string>) } })
+  } catch {
+    return { ok: false, status: 0, message: `No hay comunicación con el servidor (${API_URL}). Verifique que FastAPI esté en ejecución.` }
+  }
+  let body: any = null
+  try { body = await res.json() } catch { /* respuesta sin cuerpo JSON */ }
+  if (res.ok) return { ok: true, data: body as T }
+  const detail = typeof body?.detail === 'string' ? body.detail : ''
+  const message =
+    res.status === 404 ? `No encontrado: ${detail || 'el paciente o la consulta indicada no existe.'}` :
+    res.status === 503 ? `Servicio no disponible: el motor de base de datos no responde en este momento. Intente de nuevo en unos segundos.${detail ? ` (${detail})` : ''}` :
+    res.status === 401 ? 'La sesión expiró. Cambie de institución o recargue la página para volver a autenticarse.' :
+    res.status === 422 ? 'Datos inválidos: revise los campos obligatorios del formulario.' :
+    detail || `Error inesperado del servidor (HTTP ${res.status}).`
+  return { ok: false, status: res.status, message }
 }
+
+/* ── Formularios: cada sección se traduce a una operación del contrato IRepository ── */
+
+type Field = {
+  name: string; label: string; placeholder?: string
+  type?: 'text' | 'date' | 'datetime-local' | 'number' | 'textarea' | 'consulta'
+  wide?: boolean; optional?: boolean
+}
+type Operation = 'paciente' | 'consulta' | 'diagnostico' | 'receta' | 'archivo'
+type FormSpec = { op: Operation; fields: Field[]; toConsulta?: (d: Record<string, string>) => { motivo: string; observaciones?: string; fecha?: string } }
+
+const consultaSelect: Field = { name: 'consulta', label: 'Consulta asociada', type: 'consulta', wide: true }
+
+const formSpecs: Partial<Record<SectionId, FormSpec>> = {
+  patients: {
+    op: 'paciente',
+    fields: [
+      { name: 'fullName', label: 'Nombre completo', placeholder: 'Nombre y apellidos', wide: true },
+      { name: 'document', label: 'Documento de identificación (DPI/CUI)', placeholder: 'Ej. TEST0001' },
+      { name: 'birthDate', label: 'Fecha de nacimiento', type: 'date' },
+      { name: 'contact', label: 'Teléfono de contacto', placeholder: 'Número de teléfono', optional: true },
+    ],
+  },
+  consultations: {
+    op: 'consulta',
+    fields: [
+      { name: 'motivo', label: 'Motivo de consulta', placeholder: 'Ej. Dolor abdominal de 3 días', wide: true },
+      { name: 'observaciones', label: 'Observaciones / notas de consulta', type: 'textarea', placeholder: 'Hallazgos, signos vitales, indicaciones', wide: true, optional: true },
+    ],
+    toConsulta: (d) => ({ motivo: d.motivo, observaciones: d.observaciones }),
+  },
+  appointments: {
+    op: 'consulta',
+    fields: [
+      { name: 'date', label: 'Fecha y hora', type: 'datetime-local' },
+      { name: 'service', label: 'Servicio', placeholder: 'Servicio o especialidad' },
+      { name: 'notes', label: 'Notas de la cita', type: 'textarea', wide: true, optional: true },
+    ],
+    toConsulta: (d) => ({ motivo: `Cita programada: ${d.service}`, observaciones: d.notes, fecha: d.date }),
+  },
+  treatments: {
+    op: 'consulta',
+    fields: [
+      { name: 'plan', label: 'Plan de tratamiento', placeholder: 'Descripción del tratamiento', wide: true },
+      { name: 'followUp', label: 'Fecha de seguimiento', type: 'date', optional: true },
+    ],
+    toConsulta: (d) => ({ motivo: `Tratamiento indicado: ${d.plan}`, observaciones: d.followUp ? `Seguimiento: ${d.followUp}` : undefined }),
+  },
+  procedures: {
+    op: 'consulta',
+    fields: [
+      { name: 'area', label: 'Pieza o área dental', placeholder: 'Ej. Pieza 36' },
+      { name: 'procedure', label: 'Procedimiento', placeholder: 'Ej. Resina oclusal' },
+      { name: 'notes', label: 'Notas', type: 'textarea', wide: true, optional: true },
+    ],
+    toConsulta: (d) => ({ motivo: `Procedimiento dental: ${d.procedure} (${d.area})`, observaciones: d.notes }),
+  },
+  'lab-orders': {
+    op: 'consulta',
+    fields: [
+      { name: 'exam', label: 'Examen solicitado', placeholder: 'Ej. Hematología completa' },
+      { name: 'priority', label: 'Prioridad', placeholder: 'Ordinaria / urgente', optional: true },
+    ],
+    toConsulta: (d) => ({ motivo: d.exam, observaciones: d.priority ? `Prioridad: ${d.priority}` : undefined }),
+  },
+  growth: {
+    op: 'consulta',
+    fields: [
+      { name: 'weight', label: 'Peso (kg)', type: 'number' },
+      { name: 'height', label: 'Talla (cm)', type: 'number' },
+      { name: 'head', label: 'Perímetro cefálico (cm)', type: 'number', optional: true },
+    ],
+    toConsulta: (d) => ({
+      motivo: 'Control de crecimiento',
+      observaciones: `Peso ${d.weight} kg · Talla ${d.height} cm${d.head ? ` · PC ${d.head} cm` : ''}`,
+    }),
+  },
+  vaccines: {
+    op: 'consulta',
+    fields: [
+      { name: 'vaccine', label: 'Vacuna', placeholder: 'Nombre de la vacuna' },
+      { name: 'dose', label: 'Dosis', placeholder: 'Ej. Segunda dosis' },
+    ],
+    toConsulta: (d) => ({ motivo: `Vacunación: ${d.vaccine}`, observaciones: `Dosis: ${d.dose}` }),
+  },
+  diagnoses: {
+    op: 'diagnostico',
+    fields: [
+      consultaSelect,
+      { name: 'code', label: 'Código CIE-10', placeholder: 'Ej. K29.7', optional: true },
+      { name: 'diagnosis', label: 'Diagnóstico clínico', placeholder: 'Descripción clínica', wide: true },
+    ],
+  },
+  prescriptions: {
+    op: 'receta',
+    fields: [
+      consultaSelect,
+      { name: 'medicine', label: 'Medicamento', placeholder: 'Nombre genérico' },
+      { name: 'dose', label: 'Dosis', placeholder: 'Ej. 500 mg' },
+      { name: 'frequency', label: 'Frecuencia', placeholder: 'Ej. Cada 8 horas' },
+      { name: 'days', label: 'Duración (días)', type: 'number' },
+    ],
+  },
+  archive: {
+    op: 'archivo',
+    fields: [
+      { name: 'reason', label: 'Motivo de archivado', type: 'textarea', placeholder: 'Justificación de la baja administrativa', wide: true, optional: true },
+    ],
+  },
+}
+
+/** Secciones de solo lectura: muestran el historial del paciente cargado en lugar de un formulario. */
+const READ_ONLY_SECTIONS: SectionId[] = ['search', 'histories', 'lab-results']
+
+const patientIdOf = (p: any) => (p ? String(p.id_paciente ?? p.id ?? '') : '')
 
 function App() {
   const [entered, setEntered] = useState(false)
@@ -97,7 +169,7 @@ function App() {
   const [section, setSection] = useState<SectionId>('overview')
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [formOpen, setFormOpen] = useState(false)
-  const [notice, setNotice] = useState<string>('')
+  const [notice, setNotice] = useState<Notice | null>(null)
   const [isConnected, setIsConnected] = useState<boolean>(false)
   const [token, setToken] = useState<string | null>(null)
   const [searchDpi, setSearchDpi] = useState<string>('')
@@ -108,200 +180,151 @@ function App() {
   const workspace = useMemo(() => createInstitutionWorkspace(institutionId), [institutionId])
   const details = sectionDetails[section]
   const currentEngine = INSTITUTION_CREDENTIALS[institutionId].motor
+  const spec = formSpecs[section]
+  const patientId = patientIdOf(patientResult)
+  const isArchived = patientResult?.estado === 'archivado'
+  const consultas: any[] = historyResult?.consultas ?? []
 
   // Autenticar al cargar o cambiar de institución
   useEffect(() => {
     let isMounted = true
     async function login() {
       const creds = INSTITUTION_CREDENTIALS[institutionId]
-      try {
-        const res = await fetch(`${API_URL}/auth/login`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ usuario: creds.usuario, password: creds.password }),
-        })
-        if (res.ok) {
-          const data = await res.json()
-          if (isMounted) {
-            setToken(data.access_token)
-            setIsConnected(true)
-          }
-        } else {
-          if (isMounted) {
-            setIsConnected(false)
-            setToken(null)
-          }
-        }
-      } catch (err) {
-        if (isMounted) {
-          setIsConnected(false)
-          setToken(null)
-        }
-      }
+      const r = await apiRequest<{ access_token: string }>('/auth/login', null, {
+        method: 'POST',
+        body: JSON.stringify({ usuario: creds.usuario, password: creds.password }),
+      })
+      if (!isMounted) return
+      setToken(r.ok ? r.data.access_token : null)
+      setIsConnected(r.ok)
     }
     login()
-    return () => {
-      isMounted = false
-    }
+    return () => { isMounted = false }
   }, [institutionId])
 
   function changeSection(nextSection: SectionId) {
     setSection(nextSection)
     setFormOpen(false)
     setMobileMenuOpen(false)
-    setNotice('')
+    setNotice(null)
   }
 
   function changeInstitution(nextInstitution: InstitutionId) {
     setInstitutionId(nextInstitution)
     setSection('overview')
     setFormOpen(false)
-    setNotice('')
+    setNotice(null)
     setPatientResult(null)
     setHistoryResult(null)
   }
 
-  async function handleSearch(event?: React.FormEvent) {
-    if (event) event.preventDefault()
-    if (!searchDpi.trim()) return
-    setLoading(true)
-    setNotice('')
-    try {
-      const headers: Record<string, string> = {}
-      if (token) headers['Authorization'] = `Bearer ${token}`
-
-      const res = await fetch(`${API_URL}/pacientes/buscar?dpi=${encodeURIComponent(searchDpi.trim())}`, { headers })
-      if (res.ok) {
-        const data = await res.json()
-        setPatientResult(data)
-        setSection('search')
-        // Consultar historial
-        const pid = data.id_paciente || data.id
-        if (pid) {
-          const histRes = await fetch(`${API_URL}/historial/${pid}`, { headers })
-          if (histRes.ok) {
-            const histData = await histRes.json()
-            setHistoryResult(histData)
-          }
-        }
-      } else {
-        setPatientResult(null)
-        setHistoryResult(null)
-        setNotice(`No se encontró ningún paciente con el DPI ${searchDpi}`)
-      }
-    } catch (err: any) {
-      setNotice(`Error al buscar paciente: ${err.message}`)
-    } finally {
-      setLoading(false)
+  /** Recarga el historial desde el motor activo; es la fuente de verdad tras cada escritura. */
+  async function refreshHistory(pid: string) {
+    if (!pid) return
+    const r = await apiRequest(`/historial/${encodeURIComponent(pid)}`, token)
+    if (r.ok) {
+      setHistoryResult(r.data)
+      if (r.data?.paciente) setPatientResult(r.data.paciente)
+    } else {
+      setNotice({ kind: r.status === 503 ? 'warn' : 'error', text: `No se pudo actualizar el historial. ${r.message}` })
     }
   }
 
-  async function handleFormSubmit(data: Record<string, string>) {
+  async function handleSearch(event?: React.FormEvent) {
+    if (event) event.preventDefault()
+    const dpi = searchDpi.trim()
+    if (!dpi) return
     setLoading(true)
-    setNotice('')
-    try {
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-      if (token) headers['Authorization'] = `Bearer ${token}`
+    setNotice(null)
+    const r = await apiRequest(`/pacientes/buscar?dpi=${encodeURIComponent(dpi)}`, token)
+    if (r.ok) {
+      setPatientResult(r.data)
+      setHistoryResult(null)
+      if (section === 'overview' || section === 'patients') setSection('search')
+      await refreshHistory(patientIdOf(r.data))
+    } else {
+      setPatientResult(null)
+      setHistoryResult(null)
+      setNotice({ kind: r.status === 503 ? 'warn' : 'error', text: r.status === 404 ? `No se encontró ningún paciente con el DPI ${dpi} en ${workspace.institution.name}.` : r.message })
+    }
+    setLoading(false)
+  }
 
-      if (section === 'patients') {
-        const payload = {
-          nombre: data.fullName,
-          dpi: data.document,
-          fecha_nacimiento: data.birthDate || '1990-01-01',
-          telefono: data.contact || '',
-          tutor_nombre: data.guardian || '',
-        }
-        const res = await fetch(`${API_URL}/pacientes/`, {
+  async function handleFormSubmit(data: Record<string, string>) {
+    if (!spec) return
+    setLoading(true)
+    setNotice(null)
+    const fail = (r: { status: number; message: string }) =>
+      setNotice({ kind: r.status === 503 || r.status === 0 ? 'warn' : 'error', text: r.message })
+
+    try {
+      if (spec.op === 'paciente') {
+        const r = await apiRequest('/pacientes/', token, {
           method: 'POST',
-          headers,
-          body: JSON.stringify(payload),
+          body: JSON.stringify({
+            nombre: data.fullName,
+            dpi: data.document,
+            fecha_nacimiento: data.birthDate,
+            telefono: data.contact || null,
+            tutor_nombre: data.guardian || null,
+          }),
         })
-        if (res.ok) {
-          const out = await res.json()
-          setNotice(`✅ Paciente '${out.nombre}' registrado con éxito en ${workspace.institution.name}. ID: ${out.id_paciente || out.id}`)
-          setFormOpen(false)
-          setPatientResult(out)
-          setSearchDpi(out.dpi)
-        } else {
-          const err = await res.json()
-          setNotice(`❌ Error al registrar paciente: ${err.detail || 'Fallo en el servidor'}`)
-        }
-      } else if (section === 'consultations') {
-        const payload = {
-          id_paciente: data.patient,
-          motivo: data.note || 'Consulta médica',
-          profesional: data.professional || 'Médico tratante',
-        }
-        const res = await fetch(`${API_URL}/consultas/`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify(payload),
-        })
-        if (res.ok) {
-          const out = await res.json()
-          setNotice(`✅ Consulta registrada con éxito. ID: ${out.id_consulta || out.id}`)
-          setFormOpen(false)
-        } else {
-          const err = await res.json()
-          setNotice(`❌ Error al registrar consulta: ${err.detail || 'Fallo en el servidor'}`)
-        }
-      } else if (section === 'diagnoses') {
-        const payload = {
-          id_consulta: data.patient,
-          descripcion: data.diagnosis,
-          codigo_cie10: data.code || 'Z00.0',
-        }
-        const res = await fetch(`${API_URL}/consultas/diagnostico`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify(payload),
-        })
-        if (res.ok) {
-          setNotice(`✅ Diagnóstico agregado con éxito a la consulta ${data.patient}.`)
-          setFormOpen(false)
-        } else {
-          const err = await res.json()
-          setNotice(`❌ Error al agregar diagnóstico: ${err.detail || 'Fallo en el servidor'}`)
-        }
-      } else if (section === 'prescriptions') {
-        const payload = {
-          id_consulta: data.patient,
-          medicamento: data.medicine,
-          dosis: data.dose,
-          frecuencia: 'Según indicación',
-          duracion_dias: 5,
-        }
-        const res = await fetch(`${API_URL}/consultas/receta`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify(payload),
-        })
-        if (res.ok) {
-          setNotice(`✅ Receta registrada con éxito para la consulta ${data.patient}.`)
-          setFormOpen(false)
-        } else {
-          const err = await res.json()
-          setNotice(`❌ Error al registrar receta: ${err.detail || 'Fallo en el servidor'}`)
-        }
-      } else if (section === 'archive') {
-        const pid = data.patient
-        const res = await fetch(`${API_URL}/pacientes/${pid}/archivar`, {
-          method: 'PATCH',
-          headers,
-        })
-        if (res.ok) {
-          setNotice(`✅ Historial del paciente ${pid} archivado exitosamente (baja administrativa).`)
-          setFormOpen(false)
-        } else {
-          const err = await res.json()
-          setNotice(`❌ Error al archivar paciente: ${err.detail || 'Fallo en el servidor'}`)
-        }
-      } else {
-        setNotice(`Operación ${details.action} procesada en ${workspace.institution.name}.`)
+        if (!r.ok) return fail(r)
+        setNotice({ kind: 'ok', text: `Paciente '${r.data.nombre}' registrado en ${workspace.institution.name} (${currentEngine}). ID: ${patientIdOf(r.data)}` })
         setFormOpen(false)
+        setPatientResult(r.data)
+        setSearchDpi(r.data.dpi)
+        await refreshHistory(patientIdOf(r.data))
+        return
       }
-    } catch (err: any) {
-      setNotice(`Error de comunicación con el servidor: ${err.message}`)
+
+      if (!patientId) {
+        setNotice({ kind: 'error', text: 'Primero busque o registre un paciente.' })
+        return
+      }
+
+      if (spec.op === 'consulta') {
+        const c = spec.toConsulta!(data)
+        const r = await apiRequest('/consultas/', token, {
+          method: 'POST',
+          body: JSON.stringify({
+            id_paciente: patientId,
+            motivo: c.motivo,
+            observaciones: c.observaciones || null,
+            ...(c.fecha ? { fecha: c.fecha } : {}),
+          }),
+        })
+        if (!r.ok) return fail(r)
+        setNotice({ kind: 'ok', text: `${details.action} guardado en ${currentEngine}. Consulta #${r.data.id_consulta ?? r.data.id}.` })
+      } else if (spec.op === 'diagnostico') {
+        const r = await apiRequest('/consultas/diagnostico', token, {
+          method: 'POST',
+          body: JSON.stringify({ id_consulta: data.consulta, descripcion: data.diagnosis, codigo_cie10: data.code || 'Z00.0' }),
+        })
+        if (!r.ok) return fail(r)
+        setNotice({ kind: 'ok', text: `Diagnóstico agregado a la consulta #${data.consulta}.` })
+      } else if (spec.op === 'receta') {
+        const r = await apiRequest('/consultas/receta', token, {
+          method: 'POST',
+          body: JSON.stringify({
+            id_consulta: data.consulta,
+            medicamento: data.medicine,
+            dosis: data.dose,
+            frecuencia: data.frequency,
+            duracion_dias: Number(data.days),
+          }),
+        })
+        if (!r.ok) return fail(r)
+        setNotice({ kind: 'ok', text: `Receta de ${data.medicine} registrada en la consulta #${data.consulta}.` })
+      } else if (spec.op === 'archivo') {
+        const r = await apiRequest(`/pacientes/${encodeURIComponent(patientId)}/archivar`, token, { method: 'PATCH' })
+        if (!r.ok) return fail(r)
+        setPatientResult((p: any) => (p ? { ...p, estado: 'archivado' } : p))
+        setNotice({ kind: 'ok', text: `Historial de ${patientResult.nombre} archivado (baja administrativa).` })
+      }
+
+      setFormOpen(false)
+      await refreshHistory(patientId)
     } finally {
       setLoading(false)
     }
@@ -310,6 +333,8 @@ function App() {
   if (!entered) {
     return <Manifest onEnter={() => setEntered(true)} />
   }
+
+  const needsConsulta = spec?.op === 'diagnostico' || spec?.op === 'receta'
 
   return (
     <div className="workbench-shell">
@@ -374,7 +399,7 @@ function App() {
             {isConnected ? (
               <span className="connected"><Signal size={15} /> Servidor FastAPI en línea. Motor activo: <strong>{currentEngine}</strong>. Persistencia asegurada.</span>
             ) : (
-              <span><Signal size={15} /> Intentando conectar con http://localhost:8000... Asegúrese de que el backend esté ejecutándose.</span>
+              <span><Signal size={15} /> Intentando conectar con {API_URL}... Asegúrese de que el backend esté ejecutándose.</span>
             )}
           </p>
 
@@ -390,86 +415,53 @@ function App() {
               />
             </label>
             <button type="submit" className="search-submit" disabled={loading}>
-              {loading ? 'Buscando...' : 'Buscar'} <ArrowRight size={16} />
+              {loading ? 'Procesando...' : 'Buscar'} <ArrowRight size={16} />
             </button>
           </form>
 
           {notice && (
-            <div className="system-notice" role="status">
-              <Signal size={16} />
-              <p>{notice}</p>
-              <button onClick={() => setNotice('')} aria-label="Cerrar aviso"><X size={16} /></button>
+            <div className={`system-notice notice-${notice.kind}`} role={notice.kind === 'ok' ? 'status' : 'alert'}>
+              {notice.kind === 'ok' ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
+              <p>{notice.text}</p>
+              <button onClick={() => setNotice(null)} aria-label="Cerrar aviso"><X size={16} /></button>
             </div>
           )}
 
-          {/* Resultado de búsqueda de paciente */}
-          {patientResult && (
-            <div className="patient-card">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <h3>{patientResult.nombre}</h3>
-                <span className={`badge ${patientResult.estado === 'archivado' ? 'badge-archived' : 'badge-active'}`}>
-                  {patientResult.estado}
-                </span>
-              </div>
-              <p><strong>ID:</strong> {patientResult.id_paciente || patientResult.id} | <strong>DPI:</strong> {patientResult.dpi}</p>
-              <p><strong>Fecha de Nacimiento:</strong> {patientResult.fecha_nacimiento} | <strong>Teléfono:</strong> {patientResult.telefono || 'No registrado'}</p>
-              {patientResult.tutor_nombre && <p><strong>Tutor:</strong> {patientResult.tutor_nombre} ({patientResult.tutor_telefono})</p>}
-
-              {historyResult && (
-                <div style={{ marginTop: 15, borderTop: '1px solid #ccc', paddingTop: 10 }}>
-                  <h4 style={{ margin: '10px 0 5px' }}>Historial de Consultas ({historyResult.consultas?.length || 0})</h4>
-                  <div className="history-timeline">
-                    {historyResult.consultas?.map((c: any, idx: number) => (
-                      <div key={idx} className="history-entry">
-                        <h4>Consulta #{c.id_consulta || c.id} — {c.profesional || 'Médico'}</h4>
-                        <p><strong>Motivo:</strong> {c.motivo}</p>
-                        <p style={{ fontSize: 11, color: '#888' }}>Fecha: {c.fecha}</p>
-                      </div>
-                    ))}
-                    {historyResult.consultas?.length === 0 && <p style={{ fontSize: 12, color: '#777' }}>No hay consultas registradas para este paciente.</p>}
-                  </div>
-
-                  <h4 style={{ margin: '15px 0 5px' }}>Diagnósticos Registrados ({historyResult.diagnosticos?.length || 0})</h4>
-                  <div className="history-timeline">
-                    {historyResult.diagnosticos?.map((d: any, idx: number) => (
-                      <div key={idx} className="history-entry" style={{ borderLeftColor: '#0056b3' }}>
-                        <h4>{d.codigo_cie10 ? `[${d.codigo_cie10}] ` : ''}{d.descripcion}</h4>
-                        <p style={{ fontSize: 11, color: '#888' }}>Asociado a Consulta #{d.id_consulta}</p>
-                      </div>
-                    ))}
-                  </div>
-
-                  <h4 style={{ margin: '15px 0 5px' }}>Recetas y Medicamentos ({historyResult.recetas?.length || 0})</h4>
-                  <div className="history-timeline">
-                    {historyResult.recetas?.map((r: any, idx: number) => (
-                      <div key={idx} className="history-entry" style={{ borderLeftColor: '#28a745' }}>
-                        <h4>💊 {r.medicamento}</h4>
-                        <p>Dosis: {r.dosis} | Frecuencia: {r.frecuencia} | Duración: {r.duracion_dias} días</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
+          {patientResult && <PatientCard patient={patientResult} history={historyResult} />}
 
           {section === 'overview' ? (
             <EmptyOverview onAction={() => { changeSection('patients'); setFormOpen(true) }} />
-          ) : section === 'search' ? (
-            !patientResult && <EmptyState icon="search" title="Búsqueda de Pacientes" description="Ingrese el DPI en la barra superior para buscar el expediente en el motor activo." />
+          ) : READ_ONLY_SECTIONS.includes(section) || !spec ? (
+            !patientResult && <EmptyState icon={section === 'lab-results' ? 'lab' : 'search'} title={details.emptyTitle} description={details.description} />
           ) : (
             <section className="operation-area" aria-label={details.title}>
-              {!formOpen ? (
+              {spec.op !== 'paciente' && !patientResult ? (
+                <EmptyState icon="search" title="Seleccione un paciente" description={`Busque al paciente por DPI en la barra superior para ${details.action.toLowerCase()} en ${workspace.institution.name}.`} />
+              ) : spec.op !== 'paciente' && isArchived ? (
+                <EmptyState icon="archive" title="Historial archivado" description="Este paciente tiene baja administrativa; no se admiten nuevos registros clínicos." />
+              ) : needsConsulta && consultas.length === 0 ? (
                 <div>
-                  <EmptyState icon={section === 'archive' ? 'archive' : section === 'lab-results' ? 'lab' : 'history'} title={details.emptyTitle} description={details.description} />
-                  <button className="primary-action" onClick={() => { setFormOpen(true); setNotice('') }}>
+                  <EmptyState icon="history" title="El paciente aún no tiene consultas" description={`Para ${details.action.toLowerCase()} primero registre una consulta.`} />
+                  <button className="primary-action" onClick={() => changeSection('consultations')}>
+                    <Plus size={16} /> Registrar consulta
+                  </button>
+                </div>
+              ) : !formOpen ? (
+                <div>
+                  <EmptyState icon={section === 'archive' ? 'archive' : 'history'} title={details.emptyTitle} description={details.description} />
+                  <button className="primary-action" onClick={() => { setFormOpen(true); setNotice(null) }} disabled={!isConnected}>
                     <Plus size={16} /> {details.action}
                   </button>
                 </div>
               ) : (
                 <OperationForm
+                  key={section}
                   section={section}
+                  fields={spec.fields}
                   institutionId={institutionId}
+                  patient={spec.op === 'paciente' ? null : patientResult}
+                  consultas={consultas}
+                  loading={loading}
                   onCancel={() => setFormOpen(false)}
                   onSubmit={handleFormSubmit}
                 />
@@ -484,6 +476,79 @@ function App() {
           </footer>
         </section>
       </main>
+    </div>
+  )
+}
+
+function PatientCard({ patient, history }: { patient: any; history: any | null }) {
+  const extra: { key: string; label: string }[] = [
+    { key: 'examenes_laboratorio', label: 'Exámenes de laboratorio' },
+    { key: 'procedimientos_dentales', label: 'Procedimientos dentales' },
+    { key: 'controles_crecimiento', label: 'Controles de crecimiento' },
+    { key: 'vacunas', label: 'Vacunas' },
+  ]
+  return (
+    <div className="patient-card">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <h3>{patient.nombre}</h3>
+        <span className={`badge ${patient.estado === 'archivado' ? 'badge-archived' : 'badge-active'}`}>{patient.estado}</span>
+      </div>
+      <p><strong>ID:</strong> {patientIdOf(patient)} | <strong>DPI:</strong> {patient.dpi}</p>
+      <p><strong>Fecha de Nacimiento:</strong> {patient.fecha_nacimiento} | <strong>Teléfono:</strong> {patient.telefono || 'No registrado'}</p>
+      {patient.tutor_nombre && <p><strong>Tutor:</strong> {patient.tutor_nombre}{patient.tutor_telefono ? ` (${patient.tutor_telefono})` : ''}</p>}
+
+      {history && (
+        <div style={{ marginTop: 15, borderTop: '1px solid var(--line)', paddingTop: 10 }}>
+          <h4 style={{ margin: '10px 0 5px' }}>Historial de Consultas ({history.consultas?.length || 0})</h4>
+          <div className="history-timeline">
+            {history.consultas?.map((c: any, idx: number) => (
+              <div key={idx} className="history-entry">
+                <h4>Consulta #{c.id_consulta || c.id} — {c.profesional || 'Médico'}</h4>
+                <p><strong>Motivo:</strong> {c.motivo}</p>
+                {c.observaciones && <p><strong>Observaciones:</strong> {c.observaciones}</p>}
+                <p style={{ fontSize: 11, color: 'var(--muted)' }}>Fecha: {String(c.fecha ?? '')}</p>
+              </div>
+            ))}
+            {!history.consultas?.length && <p style={{ fontSize: 12, color: 'var(--muted)' }}>No hay consultas registradas para este paciente.</p>}
+          </div>
+
+          <h4 style={{ margin: '15px 0 5px' }}>Diagnósticos Registrados ({history.diagnosticos?.length || 0})</h4>
+          <div className="history-timeline">
+            {history.diagnosticos?.map((d: any, idx: number) => (
+              <div key={idx} className="history-entry" style={{ borderLeftColor: '#0056b3' }}>
+                <h4>{d.codigo_cie10 ? `[${d.codigo_cie10}] ` : ''}{d.descripcion}</h4>
+                <p style={{ fontSize: 11, color: 'var(--muted)' }}>Asociado a Consulta #{d.id_consulta}</p>
+              </div>
+            ))}
+          </div>
+
+          <h4 style={{ margin: '15px 0 5px' }}>Recetas y Medicamentos ({history.recetas?.length || 0})</h4>
+          <div className="history-timeline">
+            {history.recetas?.map((r: any, idx: number) => (
+              <div key={idx} className="history-entry" style={{ borderLeftColor: '#28a745' }}>
+                <h4>💊 {r.medicamento}</h4>
+                <p>Dosis: {r.dosis} | Frecuencia: {r.frecuencia} | Duración: {r.duracion_dias} días</p>
+              </div>
+            ))}
+          </div>
+
+          {extra.filter(({ key }) => history[key]?.length).map(({ key, label }) => (
+            <div key={key}>
+              <h4 style={{ margin: '15px 0 5px' }}>{label} ({history[key].length})</h4>
+              <div className="history-timeline">
+                {history[key].map((item: any, idx: number) => (
+                  <div key={idx} className="history-entry" style={{ borderLeftColor: '#a26600' }}>
+                    <h4>{item.nombre_examen || item.procedimiento || item.nombre || item.vacuna || `Registro ${idx + 1}`}</h4>
+                    {Array.isArray(item.resultados_parametros) && item.resultados_parametros.map((p: any, i: number) => (
+                      <p key={i}>{p.parametro}: <strong>{p.valor}</strong> <span style={{ color: 'var(--muted)' }}>({p.rango_referencia})</span></p>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -567,30 +632,38 @@ function EmptyState({ icon, title, description }: { icon: 'search' | 'history' |
 
 function OperationForm({
   section,
+  fields,
   institutionId,
+  patient,
+  consultas,
+  loading,
   onCancel,
   onSubmit,
 }: {
   section: SectionId
+  fields: Field[]
   institutionId: InstitutionId
+  patient: any | null
+  consultas: any[]
+  loading: boolean
   onCancel: () => void
   onSubmit: (data: Record<string, string>) => void
 }) {
-  const [formData, setFormData] = useState<Record<string, string>>({})
-  const fields = forms[section] ?? [
-    { name: 'patient', label: 'ID del Paciente', placeholder: 'ID del paciente o historia' },
-    { name: 'detail', label: 'Detalle de la operación', placeholder: 'Información requerida', wide: true },
-  ]
-  const visibleFields = section === 'patients' && institutionId === 'pediatrics'
+  const consultaId = (c: any) => String(c.id_consulta ?? c.id)
+  const lastConsulta = consultas.length ? consultaId(consultas[consultas.length - 1]) : ''
+  const [formData, setFormData] = useState<Record<string, string>>(() => ({ consulta: lastConsulta }))
+  const motor = INSTITUTION_CREDENTIALS[institutionId].motor
+  const visibleFields: Field[] = section === 'patients' && institutionId === 'pediatrics'
     ? [...fields, { name: 'guardian', label: 'Madre, padre o persona tutora', placeholder: 'Nombre de responsable', wide: true }]
     : fields
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     setFormData((prev) => ({ ...prev, [e.target.name]: e.target.value }))
   }
 
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault()
+    if (section === 'archive' && !window.confirm(`¿Archivar el historial de ${patient?.nombre}? Esta acción es una baja administrativa.`)) return
     onSubmit(formData)
   }
 
@@ -601,29 +674,44 @@ function OperationForm({
           <span>CAPTURA DE OPERACIÓN</span>
           <h3>{sectionDetails[section].action}</h3>
         </div>
-        <span className="connected"><Signal size={13} /> EN LÍNEA · {INSTITUTION_CREDENTIALS[institutionId].motor}</span>
+        <span className="connected"><Signal size={13} /> EN LÍNEA · {motor}</span>
       </div>
       <p className="privacy-note">
-        <strong>Persistencia activa:</strong> Los datos ingresados se enviarán directamente al motor de la institución activa ({INSTITUTION_CREDENTIALS[institutionId].motor}).
+        {patient
+          ? <><strong>Paciente:</strong> {patient.nombre} (ID {patientIdOf(patient)}) · Se guardará en {motor}.</>
+          : <><strong>Persistencia activa:</strong> Los datos se enviarán directamente al motor de la institución activa ({motor}).</>}
       </p>
       <div className="form-grid">
         {visibleFields.map((field) => (
           <label key={field.name} className={field.wide ? 'field-wide' : ''}>
-            {field.label}
-            <input
-              name={field.name}
-              type={field.type ?? 'text'}
-              placeholder={field.placeholder}
-              value={formData[field.name] || ''}
-              onChange={handleChange}
-              required
-            />
+            {field.label}{field.optional ? ' (opcional)' : ''}
+            {field.type === 'consulta' ? (
+              <select name={field.name} value={formData[field.name] || ''} onChange={handleChange} required>
+                {consultas.map((c) => (
+                  <option key={consultaId(c)} value={consultaId(c)}>#{consultaId(c)} — {c.motivo}</option>
+                ))}
+              </select>
+            ) : field.type === 'textarea' ? (
+              <textarea name={field.name} placeholder={field.placeholder} value={formData[field.name] || ''} onChange={handleChange} required={!field.optional} rows={3} />
+            ) : (
+              <input
+                name={field.name}
+                type={field.type ?? 'text'}
+                placeholder={field.placeholder}
+                value={formData[field.name] || ''}
+                onChange={handleChange}
+                required={!field.optional}
+                {...(field.type === 'number' ? { min: 0, step: 'any' } : {})}
+              />
+            )}
           </label>
         ))}
       </div>
       <div className="form-actions">
         <button type="button" className="secondary-action" onClick={onCancel}>Cancelar</button>
-        <button type="submit" className="primary-action"><Check size={15} /> Guardar en {INSTITUTION_CREDENTIALS[institutionId].motor}</button>
+        <button type="submit" className="primary-action" disabled={loading}>
+          <Check size={15} /> {loading ? 'Guardando...' : section === 'archive' ? 'Confirmar archivado' : `Guardar en ${motor}`}
+        </button>
       </div>
     </form>
   )

@@ -255,3 +255,61 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px s
 .badge { display: inline-block; padding: 2px 6px; font-size: 10px; font-weight: 700; background: #eee; border: 1px solid #ccc; text-transform: uppercase; margin-right: 8px; }
 .badge-active { background: #d4edda; color: #155724; border-color: #c3e6cb; }
 .badge-archived { background: #f8d7da; color: #721c24; border-color: #f5c6cb; }
+
+/* ── Workbench layout (App.tsx) ─────────────────────────────────────────────
+   Masthead arriba; debajo, fila flex: rail de navegación fijo + espacio de trabajo flex-1. */
+.workbench-shell { min-height: 100svh; display: flex; flex-direction: column; background: var(--surface); color: var(--ink); }
+
+.terminal-masthead { position: sticky; top: 0; z-index: 15; min-height: 63px; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 0 clamp(16px, 3.3vw, 48px); border-bottom: 1px solid var(--line); background: #f7f5ef; }
+.masthead-main { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.masthead-code { display: block; color: var(--signal-red); font-size: 9px; font-weight: 700; letter-spacing: .14em; }
+.masthead-id { display: flex; align-items: center; gap: 12px; color: var(--ink); }
+.masthead-id p { margin: 3px 0 0; color: var(--ink); font-size: 12px; font-weight: 600; }
+.masthead-status { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.system-pill { display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border: 1px solid var(--line); color: #4e4a44; font-size: 9px; font-weight: 600; letter-spacing: .1em; white-space: nowrap; }
+.status-connected { border-color: #9cc5a5; background: #eaf4ec; color: #1e6b34; }
+.status-disconnected { border-color: #e2b9a0; background: #fbefe6; color: #7c3600; }
+.mobile-toggle { display: none; width: 44px; height: 44px; align-items: center; justify-content: center; border: 1px solid var(--line); background: transparent; color: var(--ink); cursor: pointer; }
+
+.workbench-body { flex: 1; display: flex; flex-direction: row; align-items: stretch; min-height: 0; }
+
+.workbench-nav { flex: 0 0 var(--rail); width: var(--rail); position: sticky; top: 63px; align-self: flex-start; height: calc(100svh - 63px); overflow-y: auto; display: flex; flex-direction: column; padding: 22px 14px 16px; border-right: 1px solid var(--line); background: #f5f2eb; color: var(--ink); }
+.nav-workspace-header { padding: 0 8px 18px; margin-bottom: 16px; border-bottom: 1px solid var(--line); }
+.nav-workspace-header h2 { margin: 4px 0 10px; color: var(--ink); font-size: 16px; line-height: 1.25; }
+.institution-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; background: var(--ink); color: var(--surface); font-size: 9px; font-weight: 600; letter-spacing: .1em; }
+
+/* Ítems del rail claro: texto oscuro legible; el activo mantiene el rojo de señal. */
+.workbench-nav .nav-group + .nav-group { border-top-color: var(--line); }
+.workbench-nav .nav-group > p { color: var(--muted); }
+.workbench-nav .nav-item { color: #1a1a1a; }
+.workbench-nav .nav-item svg { color: #5c5852; }
+.workbench-nav .nav-item:hover { background: #e8e3d7; color: #000; }
+.workbench-nav .nav-item:focus-visible { outline: 2px solid var(--signal-red); outline-offset: -2px; }
+.workbench-nav .nav-item-active, .workbench-nav .nav-item-active:hover { background: var(--signal-red); color: #fff; }
+.workbench-nav .nav-item-active svg { color: #fff; }
+
+.nav-system-box { margin-top: auto; padding: 14px 8px 0; border-top: 1px solid var(--line); }
+.system-box-title { display: flex; align-items: center; gap: 7px; color: var(--ink); font-size: 9px; font-weight: 600; letter-spacing: .12em; }
+.nav-system-box p { margin: 8px 0 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+
+.workbench-workspace { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; padding: 40px clamp(20px, 4vw, 64px) 16px; }
+.workspace-titlebar { display: flex; align-items: end; justify-content: space-between; gap: 30px; padding-bottom: 22px; }
+.workspace-titlebar h1 { margin: 0; font-family: var(--display); font-size: clamp(34px, 4vw, 60px); font-weight: 700; letter-spacing: -.025em; line-height: .95; text-transform: uppercase; }
+.kicker { margin: 0 0 8px; color: var(--deep-red); font-size: 9px; font-weight: 600; letter-spacing: .16em; }
+
+@media (max-width: 760px) {
+  .mobile-toggle { display: inline-flex; }
+  .masthead-status { display: none; }
+  .workbench-nav { position: fixed; z-index: 30; top: 63px; left: 0; bottom: 0; height: auto; width: min(300px, calc(100vw - 52px)); transform: translateX(-105%); visibility: hidden; transition: transform .2s ease; box-shadow: 12px 0 28px rgba(0,0,0,.18); }
+  .workbench-nav.nav-open { transform: translateX(0); visibility: visible; }
+  .workspace-titlebar { flex-direction: column; align-items: flex-start; gap: 14px; }
+}
+
+/* Avisos tipados de la API y controles adicionales del formulario clínico */
+.notice-ok { border-color: #9cc5a5; background: #eaf4ec; color: #1e5a2e; }
+.notice-error { border-color: #e2a3a8; background: #fbeced; color: #7a1020; }
+.notice-warn { border-color: #ceb47c; background: #fff9e9; color: #563900; }
+.form-grid select, .form-grid textarea { width: 100%; padding: 10px 11px; border: 1px solid #aaa59b; border-radius: 0; background: white; color: var(--ink); font: inherit; font-size: 12px; }
+.form-grid select { min-height: 42px; }
+.form-grid textarea { resize: vertical; min-height: 72px; }
+.primary-action:disabled { opacity: .55; cursor: not-allowed; }
