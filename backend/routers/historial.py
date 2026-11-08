@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from core.models import HistorialOut
+from core.auth import get_current_user_claims
 from core.routing import get_repository
 from domain.ports import IRepository
 
@@ -10,10 +11,14 @@ router = APIRouter(prefix="/historial", tags=["Historial Clínico"])
 @router.get("/{id_paciente}", response_model=HistorialOut)
 def obtener_historial_completo(
     id_paciente: str,
+    user: dict = Depends(get_current_user_claims),
     repo: IRepository = Depends(get_repository),
 ):
     try:
-        return repo.get_historial(id_paciente)
+        historial = repo.get_historial(id_paciente)
+        if user.get("rol") == "secretaria":
+            return HistorialOut(paciente=historial.paciente, citas=historial.citas)
+        return historial
     except ValueError as e:
         safe_msg = str(e).encode("utf-8", errors="replace").decode("utf-8")
         raise HTTPException(

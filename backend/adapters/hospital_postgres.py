@@ -10,6 +10,8 @@ from psycopg2.extras import RealDictCursor
 from core.models import (
     ConsultaIn,
     ConsultaOut,
+    CitaIn,
+    CitaCambioIn,
     DiagnosticoIn,
     DiagnosticoOut,
     HistorialOut,
@@ -17,8 +19,10 @@ from core.models import (
     PacienteOut,
     RecetaIn,
     RecetaOut,
+    TratamientoIn,
 )
 from domain.ports import IRepository
+from core.errors import ClinicalConflictError
 
 
 
@@ -131,11 +135,31 @@ class HospitalPostgresAdapter(IRepository):
         digits = re.sub(r"\D", "", str(phone))
         return int(digits[:9]) if digits else None
 
+    @staticmethod
+    def _assert_active(cur, id_paciente=None, id_consulta=None):
+        if id_consulta is not None:
+            cur.execute("""
+                SELECT p.estado_paciente FROM hospital.paciente p
+                JOIN hospital.consulta c ON c.id_paciente=p.id_paciente
+                WHERE c.id_consulta=%s
+            """, (int(id_consulta),))
+        else:
+            cur.execute("SELECT estado_paciente FROM hospital.paciente WHERE id_paciente=%s", (int(id_paciente),))
+        row = cur.fetchone()
+        if not row:
+            raise ValueError("Paciente o consulta no encontrado")
+        if row["estado_paciente"] != "activo":
+            raise ClinicalConflictError("El historial está archivado y no admite nuevos registros")
+
     # 1. Registrar paciente
     def registrar_paciente(self, datos: PacienteIn) -> PacienteOut:
         tel_int = self._clean_phone(datos.telefono)
         with self.get_connection() as conn:
             with conn.cursor() as cur:
+                cur.execute("SELECT estado_paciente FROM hospital.paciente WHERE dpi_cui=%s", (datos.dpi,))
+                existing = cur.fetchone()
+                if existing and existing["estado_paciente"] != "activo":
+                    raise ClinicalConflictError("El historial está archivado y no se puede reactivar desde el registro")
                 cur.execute(
                     """
                     INSERT INTO hospital.paciente (
@@ -209,6 +233,7 @@ class HospitalPostgresAdapter(IRepository):
     def registrar_consulta(self, datos: ConsultaIn) -> ConsultaOut:
         with self.get_connection() as conn:
             with conn.cursor() as cur:
+                self._assert_active(cur, id_paciente=datos.id_paciente)
                 # Asegurar id_medico
                 cur.execute("SELECT id_medico FROM hospital.medico ORDER BY id_medico LIMIT 1;")
                 med_row = cur.fetchone()
@@ -235,11 +260,52 @@ class HospitalPostgresAdapter(IRepository):
             fecha=str(row["fecha_consulta"]),
         )
 
+    def registrar_cita(self, datos: CitaIn) -> dict:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                self._assert_active(cur, id_paciente=datos.id_paciente)
+                cur.execute("SELECT id_medico FROM hospital.medico ORDER BY id_medico LIMIT 1")
+                medico = cur.fetchone()
+                if not medico:
+                    raise ValueError("No hay médico disponible para programar la cita")
+                cur.execute("""
+                    INSERT INTO hospital.cita (id_paciente, id_medico, fecha_hora, estado_cita, motivo_consulta)
+                    VALUES (%s, %s, %s, 'programada', %s)
+                    RETURNING id_cita
+                """, (int(datos.id_paciente), medico["id_medico"], datos.fecha, datos.servicio))
+                cid = cur.fetchone()["id_cita"]
+            conn.commit()
+        return {"id_cita": cid, "id_paciente": datos.id_paciente,
+                "fecha": str(datos.fecha), "servicio": datos.servicio, "estado": "programada"}
+
+    def cambiar_cita(self, id_cita: Any, datos: CitaCambioIn) -> dict:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT id_paciente FROM hospital.cita WHERE id_cita=%s", (int(id_cita),))
+                cita = cur.fetchone()
+                if not cita:
+                    raise ValueError(f"Cita con id {id_cita} no encontrada")
+                self._assert_active(cur, id_paciente=cita["id_paciente"])
+                cur.execute("""
+                    UPDATE hospital.cita SET fecha_hora=COALESCE(%s, fecha_hora),
+                        estado_cita=COALESCE(%s, estado_cita)
+                    WHERE id_cita=%s
+                    RETURNING id_cita, id_paciente, fecha_hora, estado_cita, motivo_consulta
+                """, (datos.fecha, datos.estado, int(id_cita)))
+                row = cur.fetchone()
+                if not row:
+                    raise ValueError(f"Cita con id {id_cita} no encontrada")
+            conn.commit()
+        return {"id_cita": row["id_cita"], "id_paciente": row["id_paciente"],
+                "fecha": str(row["fecha_hora"]), "servicio": row["motivo_consulta"],
+                "estado": row["estado_cita"]}
+
     # 4. Agregar diagnóstico
     def agregar_diagnostico(self, datos: DiagnosticoIn) -> DiagnosticoOut:
         cie10 = (datos.codigo_cie10 or "Z00.0").strip()
         with self.get_connection() as conn:
             with conn.cursor() as cur:
+                self._assert_active(cur, id_consulta=datos.id_consulta)
                 # Asegurar código en el catálogo CIE10
                 cur.execute(
                     """
@@ -272,6 +338,7 @@ class HospitalPostgresAdapter(IRepository):
     def recetar_medicamento(self, datos: RecetaIn) -> RecetaOut:
         with self.get_connection() as conn:
             with conn.cursor() as cur:
+                self._assert_active(cur, id_consulta=datos.id_consulta)
                 # 1. Asegurar o buscar medicamento
                 cur.execute(
                     "SELECT id_medicamento FROM hospital.medicamento WHERE nombre_medicamento ILIKE %s LIMIT 1;",
@@ -291,7 +358,7 @@ class HospitalPostgresAdapter(IRepository):
                     )
                     id_med = cur.fetchone()["id_medicamento"]
 
-                # 2. Obtener o crear diagnóstico para la consulta
+                # Una receta hospitalaria siempre debe tener un diagnóstico real.
                 cur.execute(
                     "SELECT id_diagnostico FROM hospital.diagnostico WHERE id_consulta = %s ORDER BY id_diagnostico DESC LIMIT 1;",
                     (int(datos.id_consulta),),
@@ -300,15 +367,7 @@ class HospitalPostgresAdapter(IRepository):
                 if diag:
                     id_diag = diag["id_diagnostico"]
                 else:
-                    cur.execute(
-                        """
-                        INSERT INTO hospital.diagnostico (id_consulta, codigo_cie10, observacion_medico, fecha_diagnostico)
-                        VALUES (%s, 'Z00.0', 'Diagnóstico general', CURRENT_DATE)
-                        RETURNING id_diagnostico;
-                        """,
-                        (int(datos.id_consulta),),
-                    )
-                    id_diag = cur.fetchone()["id_diagnostico"]
+                    raise ClinicalConflictError("Registre un diagnóstico antes de prescribir")
 
                 # 3. Obtener o crear tratamiento asociado al diagnóstico
                 cur.execute(
@@ -359,6 +418,28 @@ class HospitalPostgresAdapter(IRepository):
             frecuencia=receta_row["frecuencia_medicamento"],
             duracion_dias=receta_row["duracion_dias_medicamento"],
         )
+
+    def registrar_tratamiento(self, datos: TratamientoIn) -> dict:
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                self._assert_active(cur, id_consulta=datos.id_consulta)
+                cur.execute(
+                    "SELECT id_diagnostico FROM hospital.diagnostico WHERE id_consulta=%s ORDER BY id_diagnostico DESC LIMIT 1",
+                    (int(datos.id_consulta),),
+                )
+                diag = cur.fetchone()
+                if not diag:
+                    raise ClinicalConflictError("Registre un diagnóstico antes del tratamiento")
+                cur.execute("""
+                    INSERT INTO hospital.tratamiento
+                        (id_diagnostico, descripcion_tratamiento, indicaciones_tratamiento, fecha_inicio, fecha_fin)
+                    VALUES (%s, %s, %s, %s, %s) RETURNING id_tratamiento
+                """, (diag["id_diagnostico"], datos.descripcion, datos.indicaciones,
+                      datos.fecha_inicio or date.today(), datos.fecha_fin))
+                tid = cur.fetchone()["id_tratamiento"]
+            conn.commit()
+        return {"id_tratamiento": tid, "id_consulta": datos.id_consulta,
+                "descripcion": datos.descripcion, "indicaciones": datos.indicaciones}
 
     # 6. Obtener historial completo
     def get_historial(self, id_paciente: Any) -> HistorialOut:
@@ -437,6 +518,21 @@ class HospitalPostgresAdapter(IRepository):
                 )
                 r_rows = cur.fetchall()
 
+                cur.execute("""
+                    SELECT t.id_tratamiento, d.id_consulta, t.descripcion_tratamiento AS descripcion,
+                           t.indicaciones_tratamiento AS indicaciones, t.fecha_inicio, t.fecha_fin
+                    FROM hospital.tratamiento t
+                    JOIN hospital.diagnostico d USING (id_diagnostico)
+                    JOIN hospital.consulta c ON c.id_consulta=d.id_consulta
+                    WHERE c.id_paciente=%s ORDER BY t.fecha_inicio DESC
+                """, (pid,))
+                t_rows = cur.fetchall()
+                cur.execute("""
+                    SELECT id_cita, id_paciente, fecha_hora, estado_cita, motivo_consulta
+                    FROM hospital.cita WHERE id_paciente=%s ORDER BY fecha_hora DESC
+                """, (pid,))
+                citas_rows = cur.fetchall()
+
         consultas = [
             {
                 "id_consulta": c["id_consulta"],
@@ -474,8 +570,14 @@ class HospitalPostgresAdapter(IRepository):
         return HistorialOut(
             paciente=paciente,
             consultas=consultas,
+            citas=[{"id_cita": c["id_cita"], "id_paciente": c["id_paciente"],
+                    "fecha": str(c["fecha_hora"]), "estado": c["estado_cita"],
+                    "servicio": c["motivo_consulta"]} for c in citas_rows],
             diagnosticos=diagnosticos,
             recetas=recetas,
+            tratamientos=[dict(t, fecha_inicio=str(t["fecha_inicio"]),
+                               fecha_fin=str(t["fecha_fin"]) if t["fecha_fin"] else None)
+                          for t in t_rows],
         )
 
     # 7. Archivar historial

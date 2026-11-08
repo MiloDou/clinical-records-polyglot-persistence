@@ -12,14 +12,16 @@ source .venv/bin/activate
 python tests/test_endpoints.py
 """
 import requests
+import secrets
 import sys
+import os
 
-BASE = "http://localhost:8000"
+BASE = os.getenv("API_BASE", "http://localhost:8000")
 INSTITUCIONES = {
     "hospital": {"usuario": "medico@hospital.gt", "password": "Test1234!", "dueno": "Ronaldo"},
-    "laboratorio": {"usuario": "tecnico@laboratorio.gt", "password": "Test1234!", "dueno": "Ronaldo"},
+    "laboratorio": {"usuario": "medico@laboratorio.gt", "password": "Test1234!", "dueno": "Ronaldo"},
     "pediatria": {"usuario": "medico@pediatria.gt", "password": "Test1234!", "dueno": "Brayan"},
-    "odontologia": {"usuario": "secretaria@dental.gt", "password": "Test1234!", "dueno": "Brayan"},
+    "odontologia": {"usuario": "odontologo@dental.gt", "password": "Test1234!", "dueno": "Brayan"},
 }
 
 ok_count, errores = 0, []
@@ -54,14 +56,22 @@ def prueba(nombre, credenciales):
     token = r.json().get("access_token")
     ok(f"[{nombre}] Login exitoso")
     H = {"Authorization": f"Bearer {token}"}
+    wrong = requests.post(f"{BASE}/auth/login", json={"usuario": credenciales["usuario"], "password": "incorrecta"})
+    if wrong.status_code == 401:
+        ok(f"[{nombre}] Contraseña inválida rechazada")
+    else:
+        falla(f"[{nombre}] Contraseña inválida no fue rechazada ({wrong.status_code})")
 
     # 2. Registrar paciente
     payload = {
         "nombre": f"Paciente Test {nombre.title()}",
-        "dpi": f"TEST{nombre[:4].upper()}0001",
+        "dpi": str(1_000_000_000_000 + secrets.randbelow(9_000_000_000_000)),
         "fecha_nacimiento": "1995-06-20",
         "telefono": "55550000",
     }
+    if nombre == "pediatria":
+        payload["tutor_nombre"] = "Tutor de prueba"
+        payload["tutor_telefono"] = "55550001"
     r = requests.post(f"{BASE}/pacientes/", json=payload, headers=H)
     if r.status_code == 501:
         info(f"[{nombre}] Módulo pendiente de implementación por {dueno}")
@@ -72,12 +82,17 @@ def prueba(nombre, credenciales):
     pid = r.json().get("id_paciente") or r.json().get("id")
     ok(f"[{nombre}] Paciente registrado → id={pid}")
 
-    # 3. Buscar paciente por DPI
+    # 3. Buscar paciente por CUI
     r = requests.get(f"{BASE}/pacientes/buscar", params={"dpi": payload["dpi"]}, headers=H)
     if r.status_code == 200 and r.json():
-        ok(f"[{nombre}] Búsqueda por DPI exitosa")
+        ok(f"[{nombre}] Búsqueda por CUI exitosa")
     else:
-        falla(f"[{nombre}] Búsqueda por DPI ({r.status_code})")
+        falla(f"[{nombre}] Búsqueda por CUI ({r.status_code})")
+    r = requests.get(f"{BASE}/pacientes/buscar", params={"dpi": "9999999999999"}, headers=H)
+    if r.status_code == 404:
+        ok(f"[{nombre}] Paciente inexistente devuelve 404")
+    else:
+        falla(f"[{nombre}] Paciente inexistente devolvió {r.status_code}")
 
     # 4. Registrar consulta
     r = requests.post(
@@ -109,6 +124,22 @@ def prueba(nombre, credenciales):
         ok(f"[{nombre}] Diagnóstico agregado")
     else:
         falla(f"[{nombre}] Diagnóstico ({r.status_code}): {r.text[:120]}")
+    r = requests.post(f"{BASE}/consultas/diagnostico", json={
+        "id_consulta": "999999999", "descripcion": "No existe", "codigo_cie10": "Z00.0"
+    }, headers=H)
+    if r.status_code == 404:
+        ok(f"[{nombre}] Consulta inexistente devuelve 404")
+    else:
+        falla(f"[{nombre}] Consulta inexistente devolvió {r.status_code}")
+
+    r = requests.post(f"{BASE}/consultas/tratamiento", json={
+        "id_consulta": cid, "descripcion": "Plan de comprobación",
+        "indicaciones": "Seguimiento de comprobación"
+    }, headers=H)
+    if r.status_code == 201:
+        ok(f"[{nombre}] Tratamiento estructurado guardado")
+    else:
+        falla(f"[{nombre}] Tratamiento ({r.status_code}): {r.text[:120]}")
 
     # 6. Recetar medicamento
     r = requests.post(
@@ -127,12 +158,69 @@ def prueba(nombre, credenciales):
     else:
         falla(f"[{nombre}] Receta ({r.status_code}): {r.text[:120]}")
 
+    if nombre != "laboratorio":
+        r = requests.post(f"{BASE}/citas/", json={
+            "id_paciente": pid, "fecha": "2026-12-10T10:00:00", "servicio": "Control de prueba"
+        }, headers=H)
+        if r.status_code == 201:
+            ok(f"[{nombre}] Cita programada")
+            appointment = str(r.json()["id_cita"])
+            r = requests.patch(f"{BASE}/citas/{appointment}",
+                               json={"estado": "cancelada"}, headers=H)
+            if r.status_code == 200:
+                ok(f"[{nombre}] Cita cancelada")
+            else:
+                falla(f"[{nombre}] Cancelar cita ({r.status_code})")
+        else:
+            falla(f"[{nombre}] Programar cita ({r.status_code}): {r.text[:120]}")
+    if nombre == "laboratorio":
+        r = requests.post(f"{BASE}/especialidades/laboratorio/resultados", json={
+            "id_consulta": cid,
+            "resultados_parametros": [{"parametro": "Hemoglobina", "valor": "13.5", "unidad": "g/dL"}]
+        }, headers=H)
+        if r.status_code == 201:
+            ok("[laboratorio] Resultado medido guardado")
+        else:
+            falla(f"[laboratorio] Resultado ({r.status_code}): {r.text[:120]}")
+    if nombre == "odontologia":
+        r = requests.post(f"{BASE}/especialidades/odontologia/procedimientos", json={
+            "id_consulta": cid, "pieza": "36", "procedimiento": "Resina de prueba"
+        }, headers=H)
+        if r.status_code == 201:
+            ok("[odontologia] Procedimiento dental guardado")
+        else:
+            falla(f"[odontologia] Procedimiento ({r.status_code}): {r.text[:120]}")
+    if nombre == "pediatria":
+        for path, payload, label in (
+            ("/especialidades/pediatria/crecimiento",
+             {"id_paciente": pid, "peso_kg": 21.2, "talla_cm": 119.4}, "Crecimiento"),
+            ("/especialidades/pediatria/vacunas",
+             {"id_paciente": pid, "nombre_vacuna": "Vacuna de prueba", "dosis": "Primera"}, "Vacuna"),
+        ):
+            r = requests.post(BASE + path, json=payload, headers=H)
+            if r.status_code == 201:
+                ok(f"[pediatria] {label} guardado")
+            else:
+                falla(f"[pediatria] {label} ({r.status_code}): {r.text[:120]}")
+
     # 7. Ver historial completo
     r = requests.get(f"{BASE}/historial/{pid}", headers=H)
-    if r.status_code == 200 and r.json():
+    expected_keys = ["consultas", "diagnosticos", "recetas", "tratamientos"]
+    expected_keys += {
+        "laboratorio": ["examenes_laboratorio"],
+        "odontologia": ["citas", "procedimientos_dentales"],
+        "pediatria": ["citas", "controles_crecimiento", "vacunas"],
+        "hospital": ["citas"],
+    }[nombre]
+    if r.status_code == 200 and all(len(r.json().get(key, [])) >= 1 for key in expected_keys):
         ok(f"[{nombre}] Historial consultado")
     else:
         falla(f"[{nombre}] Historial ({r.status_code}): {r.text[:120]}")
+    r = requests.get(f"{BASE}/historial/999999999", headers=H)
+    if r.status_code == 404:
+        ok(f"[{nombre}] Historial inexistente devuelve 404")
+    else:
+        falla(f"[{nombre}] Historial inexistente devolvió {r.status_code}")
 
     # 8. Archivar historial
     r = requests.patch(f"{BASE}/pacientes/{pid}/archivar", headers=H)
@@ -140,12 +228,22 @@ def prueba(nombre, credenciales):
         ok(f"[{nombre}] Historial archivado")
     else:
         falla(f"[{nombre}] Archivar ({r.status_code}): {r.text[:120]}")
+    r = requests.post(f"{BASE}/consultas/", json={
+        "id_paciente": pid, "motivo": "Debe rechazarse"
+    }, headers=H)
+    if r.status_code == 409:
+        ok(f"[{nombre}] Historial archivado bloquea escrituras")
+    else:
+        falla(f"[{nombre}] Historial archivado permitió escritura ({r.status_code})")
 
 
 if __name__ == "__main__":
     print("\n🔬 Pruebas end-to-end — Entrega II · URL")
     print(f" Servidor: {BASE}\n")
+    selected = set(filter(None, os.getenv("TEST_INSTITUTIONS", "").split(",")))
     for inst, creds in INSTITUCIONES.items():
+        if selected and inst not in selected:
+            continue
         prueba(inst, creds)
 
     total = ok_count + len(errores)

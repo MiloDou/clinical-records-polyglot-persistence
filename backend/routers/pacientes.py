@@ -1,8 +1,11 @@
+import re
 from typing import Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from core.models import PacienteIn, PacienteOut
 from core.routing import get_repository
+from core.errors import ClinicalConflictError
+from core.auth import require_permission
 from domain.ports import IRepository
 
 router = APIRouter(prefix="/pacientes", tags=["Pacientes"])
@@ -12,10 +15,13 @@ router = APIRouter(prefix="/pacientes", tags=["Pacientes"])
 @router.post("", response_model=PacienteOut, status_code=status.HTTP_201_CREATED)
 def registrar_paciente(
     datos: PacienteIn,
+    _user: dict = Depends(require_permission("patient_write")),
     repo: IRepository = Depends(get_repository),
 ):
     try:
         return repo.registrar_paciente(datos)
+    except ClinicalConflictError:
+        raise
     except ConnectionError:
         raise
     except Exception as e:
@@ -29,9 +35,13 @@ def registrar_paciente(
 @router.get("/buscar", response_model=PacienteOut)
 def buscar_paciente_por_dpi(
     dpi: str = Query(..., description="DPI o CUI del paciente a buscar"),
+    _user: dict = Depends(require_permission("patient_read")),
     repo: IRepository = Depends(get_repository),
 ):
-    paciente = repo.buscar_paciente(dpi)
+    cui = "".join(char for char in dpi if char not in " .-")
+    if not re.fullmatch(r"[0-9]{13}", cui):
+        raise HTTPException(status_code=422, detail="El CUI debe contener exactamente 13 dígitos")
+    paciente = repo.buscar_paciente(cui)
     if not paciente:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -43,6 +53,7 @@ def buscar_paciente_por_dpi(
 @router.patch("/{id_paciente}/archivar")
 def archivar_historial(
     id_paciente: str,
+    _user: dict = Depends(require_permission("archive")),
     repo: IRepository = Depends(get_repository),
 ):
     exito = repo.archivar_historial(id_paciente)

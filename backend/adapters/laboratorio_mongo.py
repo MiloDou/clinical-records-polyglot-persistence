@@ -15,8 +15,11 @@ from core.models import (
     PacienteOut,
     RecetaIn,
     RecetaOut,
+    ResultadoLaboratorioIn,
+    TratamientoIn,
 )
 from domain.ports import IRepository
+from core.errors import ClinicalConflictError
 
 
 class LaboratorioMongoAdapter(IRepository):
@@ -50,7 +53,7 @@ class LaboratorioMongoAdapter(IRepository):
         except PyMongoError as e:
             self.client = None
             self.db = None
-            raise ConnectionError(f"MongoDB no disponible en {self.uri}: {e}") from None
+            raise ConnectionError("MongoDB no disponible; revise el servicio y la configuración de conexión") from None
         if self.db is None:
             self.db = self.client[self.db_name]
         return self.db
@@ -68,10 +71,24 @@ class LaboratorioMongoAdapter(IRepository):
         s = str(value)
         return {"_id": ObjectId(s)} if ObjectId.is_valid(s) else {"_id": s}
 
+    def _assert_active(self, id_paciente: Any = None, id_consulta: Any = None):
+        if id_consulta is not None:
+            order = self.col_ordenes.find_one(self._id_query(id_consulta))
+            if not order:
+                raise ValueError(f"Orden/consulta con id {id_consulta} no encontrada")
+            id_paciente = order["id_paciente"]
+        patient = self.col_pacientes.find_one(self._id_query(id_paciente))
+        if not patient:
+            raise ValueError(f"Paciente con id {id_paciente} no encontrado")
+        if patient.get("estado", "activo") != "activo":
+            raise ClinicalConflictError("El historial está archivado y no admite nuevos registros")
+
     # 1. Registrar paciente
     def registrar_paciente(self, datos: PacienteIn) -> PacienteOut:
         existing = self.col_pacientes.find_one({"dpi": datos.dpi.strip()})
         if existing:
+            if existing.get("estado", "activo") != "activo":
+                raise ClinicalConflictError("El historial está archivado y no se puede reactivar desde el registro")
             self.col_pacientes.update_one(
                 {"_id": existing["_id"]},
                 {"$set": {"nombre": datos.nombre, "estado": "activo", "telefono": datos.telefono}}
@@ -135,10 +152,9 @@ class LaboratorioMongoAdapter(IRepository):
             fecha_registro=str(doc.get("fecha_registro", "")),
         )
 
-    # 3. Registrar consulta (orden de examen en laboratorio)
+    # 3. Registrar orden pendiente; los resultados se agregan después de procesar la muestra.
     def registrar_consulta(self, datos: ConsultaIn) -> ConsultaOut:
-        if not self.col_pacientes.find_one(self._id_query(datos.id_paciente)):
-            raise ValueError(f"Paciente con id {datos.id_paciente} no encontrado en Laboratorio")
+        self._assert_active(id_paciente=datos.id_paciente)
         now_str = str(datetime.now())
         orden_doc = {
             "id_paciente": str(datos.id_paciente),
@@ -148,23 +164,13 @@ class LaboratorioMongoAdapter(IRepository):
             "examenes": [
                 {
                     "nombre_examen": datos.motivo,
-                    "estado": "completado",
-                    "resultados_parametros": [
-                        {
-                            "parametro": "Glucosa basal",
-                            "valor": "92 mg/dL",
-                            "rango_referencia": "70 - 100 mg/dL"
-                        },
-                        {
-                            "parametro": "Hemoglobina",
-                            "valor": "14.5 g/dL",
-                            "rango_referencia": "13.5 - 17.5 g/dL"
-                        }
-                    ]
+                    "estado": "pendiente",
+                    "resultados_parametros": [],
                 }
             ],
             "diagnosticos": [],
             "recetas": [],
+            "tratamientos": [],
         }
         res = self.col_ordenes.insert_one(orden_doc)
         cid = str(res.inserted_id)
@@ -180,6 +186,7 @@ class LaboratorioMongoAdapter(IRepository):
 
     # 4. Agregar diagnóstico (hallazgo o interpretación de laboratorio)
     def agregar_diagnostico(self, datos: DiagnosticoIn) -> DiagnosticoOut:
+        self._assert_active(id_consulta=datos.id_consulta)
         cid_str = str(datos.id_consulta)
         diag_id = str(ObjectId())
         diag_entry = {
@@ -204,6 +211,7 @@ class LaboratorioMongoAdapter(IRepository):
 
     # 5. Recetar medicamento (indicaciones terapéuticas o reactivos)
     def recetar_medicamento(self, datos: RecetaIn) -> RecetaOut:
+        self._assert_active(id_consulta=datos.id_consulta)
         cid_str = str(datos.id_consulta)
         receta_id = str(ObjectId())
         receta_entry = {
@@ -227,6 +235,33 @@ class LaboratorioMongoAdapter(IRepository):
             frecuencia=datos.frecuencia,
             duracion_dias=datos.duracion_dias,
         )
+
+    def registrar_tratamiento(self, datos: TratamientoIn) -> dict:
+        self._assert_active(id_consulta=datos.id_consulta)
+        cid = str(datos.id_consulta)
+        entry = {
+            "id_tratamiento": str(ObjectId()), "id_consulta": cid,
+            "descripcion": datos.descripcion, "indicaciones": datos.indicaciones,
+            "fecha_inicio": str(datos.fecha_inicio or date.today()),
+            "fecha_fin": str(datos.fecha_fin) if datos.fecha_fin else None,
+        }
+        result = self.col_ordenes.update_one(self._id_query(cid), {"$push": {"tratamientos": entry}})
+        if not result.matched_count:
+            raise ValueError(f"Orden/consulta con id {cid} no encontrada")
+        return entry
+
+    def registrar_resultados(self, datos: ResultadoLaboratorioIn) -> dict:
+        self._assert_active(id_consulta=datos.id_consulta)
+        cid = str(datos.id_consulta)
+        params = [p.model_dump(mode="json") for p in datos.resultados_parametros]
+        result = self.col_ordenes.update_one(
+            {**self._id_query(cid), "examenes.0": {"$exists": True}},
+            {"$push": {"examenes.0.resultados_parametros": {"$each": params}},
+             "$set": {"examenes.0.estado": "con_resultados"}},
+        )
+        if not result.matched_count:
+            raise ValueError(f"Orden/consulta con id {cid} no encontrada")
+        return {"id_consulta": cid, "resultados_parametros": params, "estado": "con_resultados"}
 
     # 6. Obtener historial completo
     def get_historial(self, id_paciente: Any) -> HistorialOut:
@@ -261,6 +296,7 @@ class LaboratorioMongoAdapter(IRepository):
         consultas = []
         diagnosticos = []
         recetas = []
+        tratamientos = []
         examenes_laboratorio = []
 
         for ord_doc in ordenes:
@@ -289,6 +325,7 @@ class LaboratorioMongoAdapter(IRepository):
                     "frecuencia": r.get("frecuencia"),
                     "duracion_dias": r.get("duracion_dias"),
                 })
+            tratamientos.extend(ord_doc.get("tratamientos", []))
             for ex in ord_doc.get("examenes", []):
                 examenes_laboratorio.append({
                     "id_consulta": cid,
@@ -302,6 +339,7 @@ class LaboratorioMongoAdapter(IRepository):
             consultas=consultas,
             diagnosticos=diagnosticos,
             recetas=recetas,
+            tratamientos=tratamientos,
             examenes_laboratorio=examenes_laboratorio,
         )
 

@@ -1,11 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
-  AlertTriangle, ArrowRight, Check, CheckCircle2, CircleHelp, FileClock, Menu, Orbit, Plus, Search,
-  ShieldCheck, Signal, X,
+  AlertTriangle, ArrowRight, Check, CheckCircle2, FileClock, Menu, Plus, Search,
+  ShieldCheck, Signal, Star, X,
 } from 'lucide-react'
 import {
   createInstitutionWorkspace,
-  institutions,
   sectionDetails,
   type InstitutionId,
   type NavigationItem,
@@ -14,11 +13,13 @@ import {
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
-const INSTITUTION_CREDENTIALS: Record<InstitutionId, { usuario: string; password: string; motor: string }> = {
-  hospital: { usuario: 'medico@hospital.gt', password: 'Test1234!', motor: 'PostgreSQL' },
-  pediatrics: { usuario: 'medico@pediatria.gt', password: 'Test1234!', motor: 'MySQL' },
-  laboratory: { usuario: 'tecnico@laboratorio.gt', password: 'Test1234!', motor: 'MongoDB' },
-  dental: { usuario: 'secretaria@dental.gt', password: 'Test1234!', motor: 'Firebase Firestore' },
+const ENGINES: Record<InstitutionId, string> = {
+  hospital: 'PostgreSQL', pediatrics: 'MySQL',
+  laboratory: 'MongoDB', dental: 'Firebase Firestore',
+}
+const API_INSTITUTIONS: Record<string, InstitutionId> = {
+  hospital: 'hospital', pediatria: 'pediatrics',
+  laboratorio: 'laboratory', odontologia: 'dental',
 }
 
 /* ── Cliente HTTP: un solo punto que traduce los códigos del backend a mensajes ── */
@@ -42,7 +43,8 @@ async function apiRequest<T = any>(path: string, token: string | null, init: Req
   const message =
     res.status === 404 ? `No encontrado: ${detail || 'el paciente o la consulta indicada no existe.'}` :
     res.status === 503 ? `Servicio no disponible: el motor de base de datos no responde en este momento. Intente de nuevo en unos segundos.${detail ? ` (${detail})` : ''}` :
-    res.status === 401 ? 'La sesión expiró. Cambie de institución o recargue la página para volver a autenticarse.' :
+    res.status === 401 ? 'La sesión expiró. Vuelva a iniciar sesión.' :
+    res.status === 409 ? detail || 'La operación no se puede realizar en el estado actual del expediente.' :
     res.status === 422 ? 'Datos inválidos: revise los campos obligatorios del formulario.' :
     detail || `Error inesperado del servidor (HTTP ${res.status}).`
   return { ok: false, status: res.status, message }
@@ -52,10 +54,11 @@ async function apiRequest<T = any>(path: string, token: string | null, init: Req
 
 type Field = {
   name: string; label: string; placeholder?: string
-  type?: 'text' | 'date' | 'datetime-local' | 'number' | 'textarea' | 'consulta'
+  type?: 'text' | 'tel' | 'date' | 'datetime-local' | 'number' | 'textarea' | 'consulta' | 'select'
+  options?: string[]; maxLength?: number; min?: string; max?: string; pattern?: string; inputMode?: 'numeric' | 'decimal' | 'tel'
   wide?: boolean; optional?: boolean
 }
-type Operation = 'paciente' | 'consulta' | 'diagnostico' | 'receta' | 'archivo'
+type Operation = 'paciente' | 'cita' | 'consulta' | 'diagnostico' | 'receta' | 'tratamiento' | 'procedimiento' | 'resultados' | 'crecimiento' | 'vacuna' | 'archivo'
 type FormSpec = { op: Operation; fields: Field[]; toConsulta?: (d: Record<string, string>) => { motivo: string; observaciones?: string; fecha?: string } }
 
 const consultaSelect: Field = { name: 'consulta', label: 'Consulta asociada', type: 'consulta', wide: true }
@@ -65,9 +68,9 @@ const formSpecs: Partial<Record<SectionId, FormSpec>> = {
     op: 'paciente',
     fields: [
       { name: 'fullName', label: 'Nombre completo', placeholder: 'Nombre y apellidos', wide: true },
-      { name: 'document', label: 'Documento de identificación (DPI/CUI)', placeholder: 'Ej. TEST0001' },
-      { name: 'birthDate', label: 'Fecha de nacimiento', type: 'date' },
-      { name: 'contact', label: 'Teléfono de contacto', placeholder: 'Número de teléfono', optional: true },
+      { name: 'document', label: 'CUI (13 dígitos)', placeholder: 'Ej. 2320556340103', maxLength: 17, pattern: '[0-9 .-]{13,17}', inputMode: 'numeric' },
+      { name: 'birthDate', label: 'Fecha de nacimiento', type: 'date', max: new Date().toISOString().slice(0, 10) },
+      { name: 'contact', label: 'Teléfono de contacto', type: 'tel', placeholder: '1234 5678 o +502 1234 5678', optional: true, maxLength: 20, inputMode: 'tel' },
     ],
   },
   consultations: {
@@ -79,30 +82,30 @@ const formSpecs: Partial<Record<SectionId, FormSpec>> = {
     toConsulta: (d) => ({ motivo: d.motivo, observaciones: d.observaciones }),
   },
   appointments: {
-    op: 'consulta',
+    op: 'cita',
     fields: [
       { name: 'date', label: 'Fecha y hora', type: 'datetime-local' },
       { name: 'service', label: 'Servicio', placeholder: 'Servicio o especialidad' },
       { name: 'notes', label: 'Notas de la cita', type: 'textarea', wide: true, optional: true },
     ],
-    toConsulta: (d) => ({ motivo: `Cita programada: ${d.service}`, observaciones: d.notes, fecha: d.date }),
   },
   treatments: {
-    op: 'consulta',
+    op: 'tratamiento',
     fields: [
+      consultaSelect,
       { name: 'plan', label: 'Plan de tratamiento', placeholder: 'Descripción del tratamiento', wide: true },
+      { name: 'indications', label: 'Indicaciones', type: 'textarea', wide: true, optional: true },
       { name: 'followUp', label: 'Fecha de seguimiento', type: 'date', optional: true },
     ],
-    toConsulta: (d) => ({ motivo: `Tratamiento indicado: ${d.plan}`, observaciones: d.followUp ? `Seguimiento: ${d.followUp}` : undefined }),
   },
   procedures: {
-    op: 'consulta',
+    op: 'procedimiento',
     fields: [
+      consultaSelect,
       { name: 'area', label: 'Pieza o área dental', placeholder: 'Ej. Pieza 36' },
       { name: 'procedure', label: 'Procedimiento', placeholder: 'Ej. Resina oclusal' },
       { name: 'notes', label: 'Notas', type: 'textarea', wide: true, optional: true },
     ],
-    toConsulta: (d) => ({ motivo: `Procedimiento dental: ${d.procedure} (${d.area})`, observaciones: d.notes }),
   },
   'lab-orders': {
     op: 'consulta',
@@ -113,30 +116,36 @@ const formSpecs: Partial<Record<SectionId, FormSpec>> = {
     toConsulta: (d) => ({ motivo: d.exam, observaciones: d.priority ? `Prioridad: ${d.priority}` : undefined }),
   },
   growth: {
-    op: 'consulta',
+    op: 'crecimiento',
     fields: [
       { name: 'weight', label: 'Peso (kg)', type: 'number' },
       { name: 'height', label: 'Talla (cm)', type: 'number' },
       { name: 'head', label: 'Perímetro cefálico (cm)', type: 'number', optional: true },
     ],
-    toConsulta: (d) => ({
-      motivo: 'Control de crecimiento',
-      observaciones: `Peso ${d.weight} kg · Talla ${d.height} cm${d.head ? ` · PC ${d.head} cm` : ''}`,
-    }),
   },
   vaccines: {
-    op: 'consulta',
+    op: 'vacuna',
     fields: [
       { name: 'vaccine', label: 'Vacuna', placeholder: 'Nombre de la vacuna' },
       { name: 'dose', label: 'Dosis', placeholder: 'Ej. Segunda dosis' },
+      { name: 'lot', label: 'Lote', placeholder: 'Lote del vial', optional: true },
     ],
-    toConsulta: (d) => ({ motivo: `Vacunación: ${d.vaccine}`, observaciones: `Dosis: ${d.dose}` }),
+  },
+  'lab-results': {
+    op: 'resultados',
+    fields: [
+      consultaSelect,
+      { name: 'parameter', label: 'Parámetro medido', placeholder: 'Ej. Hemoglobina' },
+      { name: 'value', label: 'Valor', placeholder: 'Ej. 13.5' },
+      { name: 'unit', label: 'Unidad', placeholder: 'Ej. g/dL', optional: true },
+      { name: 'range', label: 'Rango de referencia', placeholder: 'Ej. 12–16', optional: true },
+    ],
   },
   diagnoses: {
     op: 'diagnostico',
     fields: [
       consultaSelect,
-      { name: 'code', label: 'Código CIE-10', placeholder: 'Ej. K29.7', optional: true },
+      { name: 'code', label: 'Código CIE-10', placeholder: 'Ej. K29.7' },
       { name: 'diagnosis', label: 'Diagnóstico clínico', placeholder: 'Descripción clínica', wide: true },
     ],
   },
@@ -152,19 +161,28 @@ const formSpecs: Partial<Record<SectionId, FormSpec>> = {
   },
   archive: {
     op: 'archivo',
-    fields: [
-      { name: 'reason', label: 'Motivo de archivado', type: 'textarea', placeholder: 'Justificación de la baja administrativa', wide: true, optional: true },
-    ],
+    fields: [],
   },
 }
 
 /** Secciones de solo lectura: muestran el historial del paciente cargado en lugar de un formulario. */
-const READ_ONLY_SECTIONS: SectionId[] = ['search', 'histories', 'lab-results']
+const READ_ONLY_SECTIONS: SectionId[] = ['search', 'histories']
 
 const patientIdOf = (p: any) => (p ? String(p.id_paciente ?? p.id ?? '') : '')
+const normalizeCui = (value: string) => value.replace(/[ .-]/g, '')
+const isValidCuiFormat = (value: string) => /^\d{13}$/.test(normalizeCui(value))
+const normalizeLocalPhone = (value: string) => {
+  const raw = value.trim()
+  const digits = raw.replace(/\D/g, '')
+  const national = (raw.startsWith('+') && digits.startsWith('502') && digits.length === 11) || (digits.startsWith('502') && digits.length === 11)
+    ? digits.slice(3)
+    : digits
+  return national.length === 8 ? national : null
+}
 
 function App() {
   const [entered, setEntered] = useState(false)
+  const [portalLeaving, setPortalLeaving] = useState(false)
   const [institutionId, setInstitutionId] = useState<InstitutionId>('hospital')
   const [section, setSection] = useState<SectionId>('overview')
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
@@ -172,35 +190,53 @@ function App() {
   const [notice, setNotice] = useState<Notice | null>(null)
   const [isConnected, setIsConnected] = useState<boolean>(false)
   const [token, setToken] = useState<string | null>(null)
+  const [loginError, setLoginError] = useState('')
+  const [loginLoading, setLoginLoading] = useState(false)
+  const [signedInUser, setSignedInUser] = useState('')
+  const [signedInRole, setSignedInRole] = useState('')
   const [searchDpi, setSearchDpi] = useState<string>('')
+  const [notFoundCui, setNotFoundCui] = useState('')
   const [patientResult, setPatientResult] = useState<any | null>(null)
   const [historyResult, setHistoryResult] = useState<any | null>(null)
   const [loading, setLoading] = useState<boolean>(false)
 
-  const workspace = useMemo(() => createInstitutionWorkspace(institutionId), [institutionId])
+  const workspace = useMemo(() => createInstitutionWorkspace(institutionId, signedInRole), [institutionId, signedInRole])
   const details = sectionDetails[section]
-  const currentEngine = INSTITUTION_CREDENTIALS[institutionId].motor
+  const currentEngine = ENGINES[institutionId]
   const spec = formSpecs[section]
   const patientId = patientIdOf(patientResult)
   const isArchived = patientResult?.estado === 'archivado'
   const consultas: any[] = historyResult?.consultas ?? []
 
-  // Autenticar al cargar o cambiar de institución
-  useEffect(() => {
-    let isMounted = true
-    async function login() {
-      const creds = INSTITUTION_CREDENTIALS[institutionId]
-      const r = await apiRequest<{ access_token: string }>('/auth/login', null, {
-        method: 'POST',
-        body: JSON.stringify({ usuario: creds.usuario, password: creds.password }),
-      })
-      if (!isMounted) return
-      setToken(r.ok ? r.data.access_token : null)
-      setIsConnected(r.ok)
+  function enterSystem() {
+    if (portalLeaving) return
+    setPortalLeaving(true)
+    const delay = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 220
+    window.setTimeout(() => setEntered(true), delay)
+  }
+
+  async function loginUser(usuario: string, password: string) {
+    setLoginLoading(true)
+    setLoginError('')
+    const r = await apiRequest<{ access_token: string; institution: string; usuario: string; rol: string }>('/auth/login', null, {
+      method: 'POST', body: JSON.stringify({ usuario, password }),
+    })
+    setLoginLoading(false)
+    if (!r.ok) {
+      setLoginError(r.message)
+      return
     }
-    login()
-    return () => { isMounted = false }
-  }, [institutionId])
+    const inst = API_INSTITUTIONS[r.data.institution]
+    if (!inst) {
+      setLoginError('La institución de esta cuenta no está disponible.')
+      return
+    }
+    setInstitutionId(inst)
+    setSignedInUser(r.data.usuario)
+    setSignedInRole(r.data.rol)
+    setToken(r.data.access_token)
+    setIsConnected(true)
+  }
 
   function changeSection(nextSection: SectionId) {
     setSection(nextSection)
@@ -209,13 +245,17 @@ function App() {
     setNotice(null)
   }
 
-  function changeInstitution(nextInstitution: InstitutionId) {
-    setInstitutionId(nextInstitution)
+  function logout() {
+    setToken(null)
+    setSignedInUser('')
+    setSignedInRole('')
+    setIsConnected(false)
     setSection('overview')
     setFormOpen(false)
     setNotice(null)
     setPatientResult(null)
     setHistoryResult(null)
+    setSearchDpi('')
   }
 
   /** Recarga el historial desde el motor activo; es la fuente de verdad tras cada escritura. */
@@ -232,22 +272,28 @@ function App() {
 
   async function handleSearch(event?: React.FormEvent) {
     if (event) event.preventDefault()
-    const dpi = searchDpi.trim()
-    if (!dpi) return
+    const dpi = normalizeCui(searchDpi)
+    if (!isValidCuiFormat(searchDpi)) {
+      setNotice({ kind: 'error', text: 'Escriba los 13 dígitos del CUI. Puede incluir espacios o guiones.' })
+      return
+    }
     setLoading(true)
     setNotice(null)
-    const r = await apiRequest(`/pacientes/buscar?dpi=${encodeURIComponent(dpi)}`, token)
-    if (r.ok) {
-      setPatientResult(r.data)
-      setHistoryResult(null)
-      if (section === 'overview' || section === 'patients') setSection('search')
-      await refreshHistory(patientIdOf(r.data))
-    } else {
-      setPatientResult(null)
-      setHistoryResult(null)
-      setNotice({ kind: r.status === 503 ? 'warn' : 'error', text: r.status === 404 ? `No se encontró ningún paciente con el DPI ${dpi} en ${workspace.institution.name}.` : r.message })
-    }
-    setLoading(false)
+    setNotFoundCui('')
+    try {
+      const r = await apiRequest(`/pacientes/buscar?dpi=${encodeURIComponent(dpi)}`, token)
+      if (r.ok) {
+        setPatientResult(r.data)
+        setHistoryResult(null)
+        if (section === 'overview' || section === 'patients') setSection('search')
+        await refreshHistory(patientIdOf(r.data))
+      } else {
+        setPatientResult(null)
+        setHistoryResult(null)
+        if (r.status === 404) setNotFoundCui(dpi)
+        setNotice({ kind: r.status === 503 ? 'warn' : 'error', text: r.status === 404 ? `No se encontró un paciente con ese CUI en ${workspace.institution.name}. Puede registrarlo desde “Pacientes”; el CUI quedará listo para copiar.` : r.message })
+      }
+    } finally { setLoading(false) }
   }
 
   async function handleFormSubmit(data: Record<string, string>) {
@@ -263,10 +309,11 @@ function App() {
           method: 'POST',
           body: JSON.stringify({
             nombre: data.fullName,
-            dpi: data.document,
+            dpi: normalizeCui(data.document),
             fecha_nacimiento: data.birthDate,
-            telefono: data.contact || null,
+            telefono: data.contact ? normalizeLocalPhone(data.contact) : null,
             tutor_nombre: data.guardian || null,
+            tutor_telefono: data.guardianPhone ? normalizeLocalPhone(data.guardianPhone) : null,
           }),
         })
         if (!r.ok) return fail(r)
@@ -283,7 +330,17 @@ function App() {
         return
       }
 
-      if (spec.op === 'consulta') {
+      if (spec.op === 'cita') {
+        const r = await apiRequest('/citas/', token, {
+          method: 'POST',
+          body: JSON.stringify({
+            id_paciente: patientId, fecha: data.date,
+            servicio: data.service, notas: data.notes || null,
+          }),
+        })
+        if (!r.ok) return fail(r)
+        setNotice({ kind: 'ok', text: `Cita #${r.data.id_cita} programada.` })
+      } else if (spec.op === 'consulta') {
         const c = spec.toConsulta!(data)
         const r = await apiRequest('/consultas/', token, {
           method: 'POST',
@@ -299,7 +356,7 @@ function App() {
       } else if (spec.op === 'diagnostico') {
         const r = await apiRequest('/consultas/diagnostico', token, {
           method: 'POST',
-          body: JSON.stringify({ id_consulta: data.consulta, descripcion: data.diagnosis, codigo_cie10: data.code || 'Z00.0' }),
+          body: JSON.stringify({ id_consulta: data.consulta, descripcion: data.diagnosis, codigo_cie10: data.code.trim() }),
         })
         if (!r.ok) return fail(r)
         setNotice({ kind: 'ok', text: `Diagnóstico agregado a la consulta #${data.consulta}.` })
@@ -316,6 +373,60 @@ function App() {
         })
         if (!r.ok) return fail(r)
         setNotice({ kind: 'ok', text: `Receta de ${data.medicine} registrada en la consulta #${data.consulta}.` })
+      } else if (spec.op === 'tratamiento') {
+        const r = await apiRequest('/consultas/tratamiento', token, {
+          method: 'POST',
+          body: JSON.stringify({
+            id_consulta: data.consulta, descripcion: data.plan,
+            indicaciones: data.indications || null, fecha_fin: data.followUp || null,
+          }),
+        })
+        if (!r.ok) return fail(r)
+        setNotice({ kind: 'ok', text: 'Tratamiento vinculado al diagnóstico y guardado.' })
+      } else if (spec.op === 'procedimiento') {
+        const r = await apiRequest('/especialidades/odontologia/procedimientos', token, {
+          method: 'POST',
+          body: JSON.stringify({
+            id_consulta: data.consulta, pieza: data.area,
+            procedimiento: data.procedure, notas: data.notes || null,
+          }),
+        })
+        if (!r.ok) return fail(r)
+        setNotice({ kind: 'ok', text: 'Procedimiento dental guardado en la atención.' })
+      } else if (spec.op === 'resultados') {
+        const r = await apiRequest('/especialidades/laboratorio/resultados', token, {
+          method: 'POST',
+          body: JSON.stringify({
+            id_consulta: data.consulta,
+            resultados_parametros: [{
+              parametro: data.parameter, valor: data.value,
+              unidad: data.unit || null, rango_referencia: data.range || null,
+            }],
+          }),
+        })
+        if (!r.ok) return fail(r)
+        setNotice({ kind: 'ok', text: 'Resultado de laboratorio guardado.' })
+      } else if (spec.op === 'crecimiento') {
+        const r = await apiRequest('/especialidades/pediatria/crecimiento', token, {
+          method: 'POST',
+          body: JSON.stringify({
+            id_paciente: patientId, peso_kg: Number(data.weight),
+            talla_cm: Number(data.height),
+            perimetro_cefalico_cm: data.head ? Number(data.head) : null,
+          }),
+        })
+        if (!r.ok) return fail(r)
+        setNotice({ kind: 'ok', text: 'Control de crecimiento guardado.' })
+      } else if (spec.op === 'vacuna') {
+        const r = await apiRequest('/especialidades/pediatria/vacunas', token, {
+          method: 'POST',
+          body: JSON.stringify({
+            id_paciente: patientId, nombre_vacuna: data.vaccine,
+            dosis: data.dose, lote: data.lot || null,
+          }),
+        })
+        if (!r.ok) return fail(r)
+        setNotice({ kind: 'ok', text: 'Vacuna aplicada y guardada en el historial.' })
       } else if (spec.op === 'archivo') {
         const r = await apiRequest(`/pacientes/${encodeURIComponent(patientId)}/archivar`, token, { method: 'PATCH' })
         if (!r.ok) return fail(r)
@@ -330,29 +441,43 @@ function App() {
     }
   }
 
-  if (!entered) {
-    return <Manifest onEnter={() => setEntered(true)} />
+  async function updateAppointment(id: string, change: { fecha?: string; estado?: string }) {
+    setLoading(true)
+    const r = await apiRequest(`/citas/${encodeURIComponent(id)}`, token, {
+      method: 'PATCH', body: JSON.stringify(change),
+    })
+    if (r.ok) {
+      setNotice({ kind: 'ok', text: change.estado === 'cancelada' ? 'Cita cancelada.' : 'Cita reprogramada.' })
+      await refreshHistory(patientId)
+    } else {
+      setNotice({ kind: 'error', text: r.message })
+    }
+    setLoading(false)
   }
 
-  const needsConsulta = spec?.op === 'diagnostico' || spec?.op === 'receta'
+  if (!entered) {
+    return <Manifest onEnter={enterSystem} isLeaving={portalLeaving} />
+  }
+  if (!token) {
+    return <LoginScreen onLogin={loginUser} loading={loginLoading} error={loginError} />
+  }
+
+  const needsConsulta = ['diagnostico', 'receta', 'tratamiento', 'procedimiento', 'resultados'].includes(spec?.op || '')
 
   return (
     <div className="workbench-shell">
       <header className="terminal-masthead">
         <div className="masthead-main">
           <div className="masthead-id">
-            <Orbit size={20} strokeWidth={1.8} />
-            <div>
-              <span className="masthead-code">SISTEMA PÚBLICO UNIVERSAL · SP—03</span>
-              <p>Plataforma de Historiales Clínicos · Persistencia Políglota</p>
-            </div>
+            <Star size={17} strokeWidth={1.8} fill="currentColor" />
+            <p>Historial clínico</p>
           </div>
           <div className="masthead-status">
-            <span className="system-pill">URL · BASES DE DATOS II</span>
-            <span className="system-pill">ENTREGA II · NOVIEMBRE 2026</span>
             <span className={`system-pill ${isConnected ? 'status-connected' : 'status-disconnected'}`}>
-              <Signal size={12} /> {isConnected ? `CONECTADO · ${currentEngine}` : 'SIN SERVIDOR'}
+              <Signal size={12} /> {isConnected ? 'Sesión activa' : 'Sin conexión'}
             </span>
+            <span className="session-user">{signedInUser}</span>
+            <button type="button" className="session-logout" onClick={logout}>Cerrar sesión</button>
           </div>
         </div>
         <button className="mobile-toggle" onClick={() => setMobileMenuOpen((open) => !open)} aria-expanded={mobileMenuOpen} aria-label="Menú de navegación">
@@ -362,56 +487,32 @@ function App() {
 
       <main className="workbench-body">
         <aside className={`workbench-nav ${mobileMenuOpen ? 'nav-open' : ''}`} aria-label="Navegación del sistema clínico">
-          <div className="nav-workspace-header">
-            <p className="kicker">INSTITUCIÓN EN LÍNEA</p>
-            <h2>{workspace.institution.name}</h2>
-            <span className="institution-badge"><ShieldCheck size={13} /> {currentEngine}</span>
-          </div>
-
-          <NavGroup label="Operaciones Generales" items={workspace.commonItems} active={section} onSelect={changeSection} />
+          <NavGroup label="Operaciones" items={workspace.commonItems} active={section} onSelect={changeSection} />
 
           {workspace.specialtyItems.length > 0 && (
             <NavGroup label="Módulos Propios" items={workspace.specialtyItems} active={section} onSelect={changeSection} />
           )}
 
-          <div className="nav-system-box">
-            <div className="system-box-title">
-              <CircleHelp size={14} />
-              <span>ARQUITECTURA HEXAGONAL</span>
-            </div>
-            <p>El puerto IRepository desacopla las operaciones clínicas del motor físico.</p>
-          </div>
         </aside>
 
         <section className="workbench-workspace" aria-labelledby="page-title">
           <div className="workspace-titlebar">
-            <div>
-              <p className="kicker">OPERACIONES CLÍNICAS · {workspace.institution.shortName.toUpperCase()}</p>
-              <h1 id="page-title">{details.title}</h1>
-              <p className="institution-description">{workspace.institution.description}</p>
-            </div>
-            <span className="institution-select-label">CAMBIAR INSTITUCIÓN</span>
+            <h1 id="page-title">{details.title}</h1>
           </div>
 
-          <InstitutionTabs active={institutionId} onSelect={changeInstitution} />
-
-          <p className="prototype-notice">
-            {isConnected ? (
-              <span className="connected"><Signal size={15} /> Servidor FastAPI en línea. Motor activo: <strong>{currentEngine}</strong>. Persistencia asegurada.</span>
-            ) : (
-              <span><Signal size={15} /> Intentando conectar con {API_URL}... Asegúrese de que el backend esté ejecutándose.</span>
-            )}
-          </p>
+          <div className="active-institution" aria-label="Institución de la sesión">{workspace.institution.name} · {currentEngine}</div>
 
           <form className="patient-search" onSubmit={handleSearch}>
             <label className="search-input-wrap">
               <Search size={19} aria-hidden="true" />
-              <span className="sr-only">Buscar por DPI</span>
+              <span className="sr-only">Buscar por CUI (13 dígitos)</span>
               <input
                 value={searchDpi}
                 onChange={(e) => setSearchDpi(e.target.value)}
-                placeholder="Buscar paciente por DPI (ej. TESTHOSP0001)..."
-                aria-label="Búsqueda de pacientes por DPI"
+                placeholder="Buscar paciente por CUI (13 dígitos)"
+                aria-label="Búsqueda de pacientes por CUI, 13 dígitos"
+                inputMode="numeric"
+                autoComplete="off"
               />
             </label>
             <button type="submit" className="search-submit" disabled={loading}>
@@ -423,11 +524,15 @@ function App() {
             <div className={`system-notice notice-${notice.kind}`} role={notice.kind === 'ok' ? 'status' : 'alert'}>
               {notice.kind === 'ok' ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
               <p>{notice.text}</p>
+              {notFoundCui && <button className="notice-action" onClick={() => { setSearchDpi(notFoundCui); changeSection('patients'); setFormOpen(true); setNotice(null) }}>Registrar paciente</button>}
               <button onClick={() => setNotice(null)} aria-label="Cerrar aviso"><X size={16} /></button>
             </div>
           )}
 
-          {patientResult && <PatientCard patient={patientResult} history={historyResult} />}
+          {patientResult && <PatientCard patient={patientResult} history={historyResult} showClinical={signedInRole !== 'secretaria'} />}
+          {section === 'appointments' && historyResult?.citas?.length > 0 && (
+            <AppointmentList citas={historyResult.citas} loading={loading} onUpdate={updateAppointment} />
+          )}
 
           {section === 'overview' ? (
             <EmptyOverview onAction={() => { changeSection('patients'); setFormOpen(true) }} />
@@ -436,7 +541,7 @@ function App() {
           ) : (
             <section className="operation-area" aria-label={details.title}>
               {spec.op !== 'paciente' && !patientResult ? (
-                <EmptyState icon="search" title="Seleccione un paciente" description={`Busque al paciente por DPI en la barra superior para ${details.action.toLowerCase()} en ${workspace.institution.name}.`} />
+                <EmptyState icon="search" title="Seleccione un paciente" description={`Busque al paciente por CUI en la barra superior para ${details.action.toLowerCase()} en ${workspace.institution.name}.`} />
               ) : spec.op !== 'paciente' && isArchived ? (
                 <EmptyState icon="archive" title="Historial archivado" description="Este paciente tiene baja administrativa; no se admiten nuevos registros clínicos." />
               ) : needsConsulta && consultas.length === 0 ? (
@@ -460,6 +565,7 @@ function App() {
                   fields={spec.fields}
                   institutionId={institutionId}
                   patient={spec.op === 'paciente' ? null : patientResult}
+                  initialCui={spec.op === 'paciente' ? searchDpi : ''}
                   consultas={consultas}
                   loading={loading}
                   onCancel={() => setFormOpen(false)}
@@ -469,19 +575,15 @@ function App() {
             </section>
           )}
 
-          <footer className="work-footer">
-            <span>PLATAFORMA INTEGRADA · PERSISTENCIA POLÍGLOTA</span>
-            <span className="footer-institutions">Hospital (PG) · Odontología (Firebase) · Laboratorio (Mongo) · Pediatría (MySQL)</span>
-            <span className="footer-signal" aria-hidden="true"><i /></span>
-          </footer>
         </section>
       </main>
     </div>
   )
 }
 
-function PatientCard({ patient, history }: { patient: any; history: any | null }) {
+function PatientCard({ patient, history, showClinical }: { patient: any; history: any | null; showClinical: boolean }) {
   const extra: { key: string; label: string }[] = [
+    { key: 'tratamientos', label: 'Tratamientos' },
     { key: 'examenes_laboratorio', label: 'Exámenes de laboratorio' },
     { key: 'procedimientos_dentales', label: 'Procedimientos dentales' },
     { key: 'controles_crecimiento', label: 'Controles de crecimiento' },
@@ -493,12 +595,24 @@ function PatientCard({ patient, history }: { patient: any; history: any | null }
         <h3>{patient.nombre}</h3>
         <span className={`badge ${patient.estado === 'archivado' ? 'badge-archived' : 'badge-active'}`}>{patient.estado}</span>
       </div>
-      <p><strong>ID:</strong> {patientIdOf(patient)} | <strong>DPI:</strong> {patient.dpi}</p>
+      <p><strong>ID:</strong> {patientIdOf(patient)} | <strong>CUI:</strong> {patient.dpi}</p>
       <p><strong>Fecha de Nacimiento:</strong> {patient.fecha_nacimiento} | <strong>Teléfono:</strong> {patient.telefono || 'No registrado'}</p>
       {patient.tutor_nombre && <p><strong>Tutor:</strong> {patient.tutor_nombre}{patient.tutor_telefono ? ` (${patient.tutor_telefono})` : ''}</p>}
 
-      {history && (
+      {history && (showClinical || history.citas?.length > 0) && (
         <div style={{ marginTop: 15, borderTop: '1px solid var(--line)', paddingTop: 10 }}>
+          {history.citas?.length > 0 && <>
+            <h4>Citas ({history.citas.length})</h4>
+            <div className="history-timeline">
+              {history.citas.map((c: any) => (
+                <div className="history-entry" key={c.id_cita}>
+                  <h4>{c.servicio} · {c.estado}</h4>
+                  <p>{String(c.fecha || '')}</p>
+                </div>
+              ))}
+            </div>
+          </>}
+          {showClinical && <>
           <h4 style={{ margin: '10px 0 5px' }}>Historial de Consultas ({history.consultas?.length || 0})</h4>
           <div className="history-timeline">
             {history.consultas?.map((c: any, idx: number) => (
@@ -515,7 +629,7 @@ function PatientCard({ patient, history }: { patient: any; history: any | null }
           <h4 style={{ margin: '15px 0 5px' }}>Diagnósticos Registrados ({history.diagnosticos?.length || 0})</h4>
           <div className="history-timeline">
             {history.diagnosticos?.map((d: any, idx: number) => (
-              <div key={idx} className="history-entry" style={{ borderLeftColor: '#0056b3' }}>
+              <div key={idx} className="history-entry">
                 <h4>{d.codigo_cie10 ? `[${d.codigo_cie10}] ` : ''}{d.descripcion}</h4>
                 <p style={{ fontSize: 11, color: 'var(--muted)' }}>Asociado a Consulta #{d.id_consulta}</p>
               </div>
@@ -525,7 +639,7 @@ function PatientCard({ patient, history }: { patient: any; history: any | null }
           <h4 style={{ margin: '15px 0 5px' }}>Recetas y Medicamentos ({history.recetas?.length || 0})</h4>
           <div className="history-timeline">
             {history.recetas?.map((r: any, idx: number) => (
-              <div key={idx} className="history-entry" style={{ borderLeftColor: '#28a745' }}>
+              <div key={idx} className="history-entry">
                 <h4>💊 {r.medicamento}</h4>
                 <p>Dosis: {r.dosis} | Frecuencia: {r.frecuencia} | Duración: {r.duracion_dias} días</p>
               </div>
@@ -537,39 +651,103 @@ function PatientCard({ patient, history }: { patient: any; history: any | null }
               <h4 style={{ margin: '15px 0 5px' }}>{label} ({history[key].length})</h4>
               <div className="history-timeline">
                 {history[key].map((item: any, idx: number) => (
-                  <div key={idx} className="history-entry" style={{ borderLeftColor: '#a26600' }}>
-                    <h4>{item.nombre_examen || item.procedimiento || item.nombre || item.vacuna || `Registro ${idx + 1}`}</h4>
+                  <div key={idx} className="history-entry">
+                    <h4>{item.nombre_examen || item.procedimiento || item.descripcion || item.nombre_vacuna || item.nombre || item.vacuna || `Registro ${idx + 1}`}</h4>
+                    {item.estado && <p>Estado: {item.estado}</p>}
+                    {item.pieza && <p>Pieza o área: {item.pieza}</p>}
+                    {item.indicaciones && <p>Indicaciones: {item.indicaciones}</p>}
+                    {item.peso_kg && <p>Peso: {item.peso_kg} kg · Talla: {item.talla_cm} cm{item.perimetro_cefalico_cm ? ` · PC: ${item.perimetro_cefalico_cm} cm` : ''}</p>}
+                    {item.dosis && <p>Dosis: {item.dosis}{item.lote ? ` · Lote: ${item.lote}` : ''}</p>}
                     {Array.isArray(item.resultados_parametros) && item.resultados_parametros.map((p: any, i: number) => (
-                      <p key={i}>{p.parametro}: <strong>{p.valor}</strong> <span style={{ color: 'var(--muted)' }}>({p.rango_referencia})</span></p>
+                      <p key={i}>{p.parametro}: <strong>{p.valor} {p.unidad || ''}</strong> <span style={{ color: 'var(--muted)' }}>{p.rango_referencia ? `(${p.rango_referencia})` : ''}</span></p>
                     ))}
                   </div>
                 ))}
               </div>
             </div>
           ))}
+          </>}
         </div>
       )}
     </div>
   )
 }
 
-function Manifest({ onEnter }: { onEnter: () => void }) {
+function AppointmentList({ citas, loading, onUpdate }: {
+  citas: any[]
+  loading: boolean
+  onUpdate: (id: string, change: { fecha?: string; estado?: string }) => void
+}) {
+  const [newDates, setNewDates] = useState<Record<string, string>>({})
   return (
-    <main className="manifest-page">
+    <section className="appointment-list" aria-label="Citas programadas">
+      <h2>Gestionar citas</h2>
+      {citas.filter((c) => c.estado === 'programada').map((c) => {
+        const id = String(c.id_cita)
+        return (
+          <div className="appointment-row" key={id}>
+            <div><strong>{c.servicio}</strong><span>{String(c.fecha)}</span></div>
+            <label>Reprogramar
+              <input type="datetime-local" value={newDates[id] || ''} onChange={(e) =>
+                setNewDates((dates) => ({ ...dates, [id]: e.target.value }))} />
+            </label>
+            <button type="button" disabled={loading || !newDates[id]} onClick={() =>
+              onUpdate(id, { fecha: newDates[id] })}>Guardar fecha</button>
+            <button type="button" disabled={loading} onClick={() =>
+              onUpdate(id, { estado: 'cancelada' })}>Cancelar cita</button>
+          </div>
+        )
+      })}
+    </section>
+  )
+}
+
+function Manifest({ onEnter, isLeaving }: { onEnter: () => void; isLeaving: boolean }) {
+  return (
+    <main className={`manifest-page${isLeaving ? ' is-leaving' : ''}`}>
       <div className="manifest-layout">
         <section className="manifest-copy">
-          <p className="manifest-kicker"><span /> DECLARACIÓN PÚBLICA</p>
           <h1>LA SALUD<br /><em>ES UN</em><br />DERECHO.</h1>
           <p className="manifest-lede">La salud pública universal pertenece a todas las personas. Una atención continua necesita historias clínicas que acompañen a cada paciente y a cada comunidad.</p>
           <button className="manifest-cta" onClick={onEnter}>Entrar al sistema <ArrowRight size={18} /></button>
-          <div className="manifest-principles"><span><Check size={14} /> Atención continua</span><span><Check size={14} /> Historial clínico</span><span><Check size={14} /> Cuatro instituciones</span></div>
         </section>
         <figure className="manifest-artwork">
           <img src="/images/salud-comunitaria.png" alt="Ilustración editorial de personal de salud y comunidad frente a una clínica pública" />
-          <figcaption><span>ATENCIÓN COMO DERECHO</span><span>GRÁFICA PÚBLICA · SPU</span></figcaption>
-          <div className="artwork-stamp" aria-hidden="true"><ShieldCheck size={20} /><span>PARA<br />TODAS<br />Y TODOS</span></div>
         </figure>
       </div>
+    </main>
+  )
+}
+
+function LoginScreen({ onLogin, loading, error }: {
+  onLogin: (usuario: string, password: string) => void
+  loading: boolean
+  error: string
+}) {
+  const [usuario, setUsuario] = useState('')
+  const [password, setPassword] = useState('')
+  return (
+    <main className="login-page">
+      <form className="login-panel" onSubmit={(event) => {
+        event.preventDefault()
+        onLogin(usuario.trim(), password)
+      }}>
+        <span className="login-eyebrow">ACCESO INSTITUCIONAL</span>
+        <h1>Historial clínico</h1>
+        <p>Inicia sesión con tu cuenta. El sistema abrirá el expediente de tu institución.</p>
+        {error && <div className="form-error" role="alert">{error}</div>}
+        <label>Correo institucional
+          <input type="email" value={usuario} onChange={(event) => setUsuario(event.target.value)}
+            autoComplete="username" required autoFocus />
+        </label>
+        <label>Contraseña
+          <input type="password" value={password} onChange={(event) => setPassword(event.target.value)}
+            autoComplete="current-password" required />
+        </label>
+        <button className="primary-action" type="submit" disabled={loading}>
+          {loading ? 'Verificando…' : 'Entrar al sistema'} <ArrowRight size={17} />
+        </button>
+      </form>
     </main>
   )
 }
@@ -589,33 +767,13 @@ function NavGroup({ label, items, active, onSelect }: { label: string; items: Na
   )
 }
 
-function InstitutionTabs({ active, onSelect }: { active: InstitutionId; onSelect: (id: InstitutionId) => void }) {
-  return (
-    <div className="institution-tabs" aria-label="Cambiar institución">
-      {Object.values(institutions).map((institution) => (
-        <button key={institution.id} type="button" aria-pressed={active === institution.id} className={active === institution.id ? 'tab-active' : ''} onClick={() => onSelect(institution.id)}>
-          {institution.shortName}
-        </button>
-      ))}
-    </div>
-  )
-}
-
 function EmptyOverview({ onAction }: { onAction: () => void }) {
   return (
     <section className="overview-empty" aria-labelledby="empty-title">
-      <div className="coordinate-label coordinate-top">REGISTRO DE OPERACIONES <span>SPU—0001</span></div>
-      <div className="empty-orbit" aria-hidden="true">
-        <div className="orbit-ring orbit-ring-one" />
-        <div className="orbit-ring orbit-ring-two" />
-        <div className="orbit-cross"><span /><i /></div>
-        <div className="orbit-core"><Search size={26} strokeWidth={1.4} /></div>
-        <b className="orbit-dot" />
-      </div>
-      <h2 id="empty-title">Índice de Operaciones Clínicas</h2>
-      <p>Seleccione una operación en el menú lateral o registre un nuevo paciente para comenzar.</p>
-      <button className="empty-action" onClick={onAction}>Iniciar registro de paciente <ArrowRight size={15} /></button>
-      <div className="coordinate-label coordinate-bottom"><span>HISTORIAL CLÍNICO</span><span>ACTIVO</span></div>
+      <div className="overview-icon" aria-hidden="true"><Search size={22} strokeWidth={1.7} /></div>
+      <h2 id="empty-title">Comienza con un paciente</h2>
+      <p>Busca su expediente o registra uno nuevo.</p>
+      <button className="empty-action" onClick={onAction}>Registrar paciente <ArrowRight size={15} /></button>
     </section>
   )
 }
@@ -635,6 +793,7 @@ function OperationForm({
   fields,
   institutionId,
   patient,
+  initialCui,
   consultas,
   loading,
   onCancel,
@@ -644,17 +803,22 @@ function OperationForm({
   fields: Field[]
   institutionId: InstitutionId
   patient: any | null
+  initialCui: string
   consultas: any[]
   loading: boolean
   onCancel: () => void
   onSubmit: (data: Record<string, string>) => void
 }) {
   const consultaId = (c: any) => String(c.id_consulta ?? c.id)
-  const lastConsulta = consultas.length ? consultaId(consultas[consultas.length - 1]) : ''
-  const [formData, setFormData] = useState<Record<string, string>>(() => ({ consulta: lastConsulta }))
-  const motor = INSTITUTION_CREDENTIALS[institutionId].motor
-  const visibleFields: Field[] = section === 'patients' && institutionId === 'pediatrics'
-    ? [...fields, { name: 'guardian', label: 'Madre, padre o persona tutora', placeholder: 'Nombre de responsable', wide: true }]
+  const lastConsulta = consultas.length ? consultaId(consultas[0]) : ''
+  const [formData, setFormData] = useState<Record<string, string>>(() => ({ consulta: lastConsulta, document: initialCui }))
+  const [formError, setFormError] = useState('')
+  const motor = ENGINES[institutionId]
+  const visibleFields = section === 'patients' && institutionId === 'pediatrics'
+    ? [...fields,
+      { name: 'guardian', label: 'Nombre del tutor', placeholder: 'Padre, madre o responsable', wide: true },
+      { name: 'guardianPhone', label: 'Teléfono del tutor', type: 'tel' as const, placeholder: '1234 5678', optional: true },
+    ]
     : fields
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -663,6 +827,21 @@ function OperationForm({
 
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault()
+    setFormError('')
+    if (section === 'patients') {
+      if (!isValidCuiFormat(formData.document || '')) {
+        setFormError('El CUI debe tener exactamente 13 dígitos. Puede escribirlo con espacios o guiones.')
+        return
+      }
+      if (formData.contact && !normalizeLocalPhone(formData.contact)) {
+        setFormError('El teléfono debe tener 8 dígitos; el prefijo +502 es opcional.')
+        return
+      }
+      if (formData.guardianPhone && !normalizeLocalPhone(formData.guardianPhone)) {
+        setFormError('El teléfono del tutor debe tener 8 dígitos.')
+        return
+      }
+    }
     if (section === 'archive' && !window.confirm(`¿Archivar el historial de ${patient?.nombre}? Esta acción es una baja administrativa.`)) return
     onSubmit(formData)
   }
@@ -681,6 +860,7 @@ function OperationForm({
           ? <><strong>Paciente:</strong> {patient.nombre} (ID {patientIdOf(patient)}) · Se guardará en {motor}.</>
           : <><strong>Persistencia activa:</strong> Los datos se enviarán directamente al motor de la institución activa ({motor}).</>}
       </p>
+      {formError && <p className="form-error" role="alert">{formError}</p>}
       <div className="form-grid">
         {visibleFields.map((field) => (
           <label key={field.name} className={field.wide ? 'field-wide' : ''}>
@@ -690,6 +870,11 @@ function OperationForm({
                 {consultas.map((c) => (
                   <option key={consultaId(c)} value={consultaId(c)}>#{consultaId(c)} — {c.motivo}</option>
                 ))}
+              </select>
+            ) : field.type === 'select' ? (
+              <select name={field.name} value={formData[field.name] || ''} onChange={handleChange} required={!field.optional}>
+                <option value="">Seleccione…</option>
+                {field.options?.map((option) => <option key={option} value={option}>{option}</option>)}
               </select>
             ) : field.type === 'textarea' ? (
               <textarea name={field.name} placeholder={field.placeholder} value={formData[field.name] || ''} onChange={handleChange} required={!field.optional} rows={3} />
@@ -702,6 +887,12 @@ function OperationForm({
                 onChange={handleChange}
                 required={!field.optional}
                 {...(field.type === 'number' ? { min: 0, step: 'any' } : {})}
+                maxLength={field.maxLength}
+                pattern={field.pattern}
+                inputMode={field.inputMode}
+                min={field.min}
+                max={field.max}
+                autoComplete={field.name === 'document' ? 'off' : undefined}
               />
             )}
           </label>

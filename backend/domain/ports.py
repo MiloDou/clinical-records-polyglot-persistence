@@ -2,6 +2,8 @@ from typing import Any, Optional, Protocol
 from core.models import (
     ConsultaIn,
     ConsultaOut,
+    CitaIn,
+    CitaCambioIn,
     DiagnosticoIn,
     DiagnosticoOut,
     HistorialOut,
@@ -9,6 +11,7 @@ from core.models import (
     PacienteOut,
     RecetaIn,
     RecetaOut,
+    TratamientoIn,
 )
 
 
@@ -44,6 +47,18 @@ class IRepository(Protocol):
 
     def recetar_medicamento(self, datos: RecetaIn) -> RecetaOut:
         """Registra una prescripción farmacológica para la consulta."""
+        ...
+
+    def registrar_tratamiento(self, datos: TratamientoIn) -> dict:
+        """Asocia un plan de tratamiento a una consulta con diagnóstico."""
+        ...
+
+    def registrar_cita(self, datos: CitaIn) -> dict:
+        """Agenda una cita sin crear una consulta clínica."""
+        ...
+
+    def cambiar_cita(self, id_cita: Any, datos: CitaCambioIn) -> dict:
+        """Reprograma o cancela una cita existente."""
         ...
 
     def archivar_historial(self, id_paciente: Any) -> bool:

@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 import uuid
 from datetime import date, datetime
 from typing import Any, Dict, Optional
@@ -14,6 +15,8 @@ from google.cloud.firestore_v1.base_query import FieldFilter
 from core.models import (
     ConsultaIn,
     ConsultaOut,
+    CitaIn,
+    CitaCambioIn,
     DiagnosticoIn,
     DiagnosticoOut,
     HistorialOut,
@@ -21,8 +24,11 @@ from core.models import (
     PacienteOut,
     RecetaIn,
     RecetaOut,
+    ProcedimientoDentalIn,
+    TratamientoIn,
 )
 from domain.ports import IRepository
+from core.errors import ClinicalConflictError
 
 _APP_NAME = "odontologia"
 
@@ -56,9 +62,11 @@ class OdontologiaFirebaseAdapter(IRepository):
     """
 
     def __init__(self, credentials_path: Optional[str] = None, client: Any = None):
-        self.credentials_path = credentials_path or os.getenv(
+        configured = credentials_path or os.getenv(
             "FIREBASE_CREDENTIALS_PATH", "./serviceAccountKey.json"
         )
+        path = Path(configured).expanduser()
+        self.credentials_path = str(path if path.is_absolute() else Path(__file__).resolve().parents[1] / path)
         self._db = client
 
     @property
@@ -111,9 +119,18 @@ class OdontologiaFirebaseAdapter(IRepository):
 
     def _atencion_ref(self, id_consulta: Any):
         ref = self.db.collection("atenciones").document(str(id_consulta))
-        if not ref.get().exists:
+        snap = ref.get()
+        if not snap.exists:
             raise ValueError(f"Consulta/atención con id {id_consulta} no encontrada")
+        self._assert_active(snap.to_dict()["id_paciente"])
         return ref
+
+    def _assert_active(self, id_paciente: Any):
+        snap = self.db.collection("pacientes").document(str(id_paciente)).get()
+        if not snap.exists:
+            raise ValueError(f"Paciente con id {id_paciente} no encontrado")
+        if snap.to_dict().get("estado", "activo") != "activo":
+            raise ClinicalConflictError("El historial está archivado y no admite nuevos registros")
 
     def _find_by_dpi(self, dpi: str):
         docs = (
@@ -129,6 +146,8 @@ class OdontologiaFirebaseAdapter(IRepository):
         dpi = datos.dpi.strip()
         existente = self._find_by_dpi(dpi)
         if existente:
+            if existente.to_dict().get("estado", "activo") != "activo":
+                raise ClinicalConflictError("El historial está archivado y no se puede reactivar desde el registro")
             # Upsert por DPI (equivalente al ON CONFLICT de los motores relacionales)
             existente.reference.update({"nombre": datos.nombre, "estado": "activo"})
             ref = existente.reference
@@ -160,8 +179,7 @@ class OdontologiaFirebaseAdapter(IRepository):
     def registrar_consulta(self, datos: ConsultaIn) -> ConsultaOut:
         pid = str(datos.id_paciente)
         paciente_ref = self.db.collection("pacientes").document(pid)
-        if not paciente_ref.get().exists:
-            raise ValueError(f"Paciente con id {pid} no encontrado")
+        self._assert_active(pid)
 
         fecha = self._fmt_fecha(datos.fecha) or self._fmt_fecha(datetime.now())
         profesional = datos.profesional or "Dr. Sistema"
@@ -192,6 +210,7 @@ class OdontologiaFirebaseAdapter(IRepository):
                 "procedimientos": [],
                 "diagnosticos": [],
                 "recetas": [],
+                "tratamientos": [],
             },
         )
         batch.commit()
@@ -205,6 +224,38 @@ class OdontologiaFirebaseAdapter(IRepository):
             observaciones=datos.observaciones,
             fecha=fecha,
         )
+
+    def registrar_cita(self, datos: CitaIn) -> dict:
+        pid = str(datos.id_paciente)
+        paciente_ref = self.db.collection("pacientes").document(pid)
+        self._assert_active(pid)
+        ref = self.db.collection("citas").document()
+        ref.set({
+            "id_paciente": pid, "paciente_ref": paciente_ref,
+            "odontologo": None, "fecha": self._fmt_fecha(datos.fecha),
+            "motivo": datos.servicio, "notas": datos.notas, "estado": "programada",
+        })
+        return {"id_cita": ref.id, "id_paciente": pid,
+                "fecha": self._fmt_fecha(datos.fecha), "servicio": datos.servicio,
+                "estado": "programada"}
+
+    def cambiar_cita(self, id_cita: Any, datos: CitaCambioIn) -> dict:
+        ref = self.db.collection("citas").document(str(id_cita))
+        snap = ref.get()
+        if not snap.exists:
+            raise ValueError(f"Cita con id {id_cita} no encontrada")
+        self._assert_active(snap.to_dict()["id_paciente"])
+        if snap.to_dict().get("estado") == "atendida":
+            raise ClinicalConflictError("Una cita atendida ya no se puede modificar")
+        update = {}
+        if datos.fecha is not None:
+            update["fecha"] = self._fmt_fecha(datos.fecha)
+        if datos.estado is not None:
+            update["estado"] = datos.estado
+        ref.update(update)
+        row = {**snap.to_dict(), **update}
+        return {"id_cita": str(id_cita), "id_paciente": row["id_paciente"],
+                "fecha": row["fecha"], "servicio": row["motivo"], "estado": row["estado"]}
 
     # 4. Agregar diagnóstico (embebido en la atención)
     def agregar_diagnostico(self, datos: DiagnosticoIn) -> DiagnosticoOut:
@@ -231,6 +282,32 @@ class OdontologiaFirebaseAdapter(IRepository):
         ref.update({"recetas": firestore.ArrayUnion([receta])})
         return RecetaOut(id_consulta=str(datos.id_consulta), **receta)
 
+    def registrar_tratamiento(self, datos: TratamientoIn) -> dict:
+        ref = self._atencion_ref(datos.id_consulta)
+        item = {
+            "id_tratamiento": uuid.uuid4().hex,
+            "id_consulta": str(datos.id_consulta),
+            "descripcion": datos.descripcion,
+            "indicaciones": datos.indicaciones,
+            "fecha_inicio": str(datos.fecha_inicio or date.today()),
+            "fecha_fin": str(datos.fecha_fin) if datos.fecha_fin else None,
+        }
+        ref.update({"tratamientos": firestore.ArrayUnion([item])})
+        return item
+
+    def registrar_procedimiento(self, datos: ProcedimientoDentalIn) -> dict:
+        ref = self._atencion_ref(datos.id_consulta)
+        item = {
+            "id_procedimiento": uuid.uuid4().hex,
+            "id_consulta": str(datos.id_consulta),
+            "pieza": datos.pieza,
+            "procedimiento": datos.procedimiento,
+            "notas": datos.notas,
+            "fecha": date.today().isoformat(),
+        }
+        ref.update({"procedimientos": firestore.ArrayUnion([item])})
+        return item
+
     # 6. Obtener historial completo
     def get_historial(self, id_paciente: Any) -> HistorialOut:
         pid = str(id_paciente)
@@ -247,8 +324,13 @@ class OdontologiaFirebaseAdapter(IRepository):
             for s in self.db.collection("atenciones").where(filter=FieldFilter("id_paciente", "==", pid)).get()
         }
 
-        consultas, diagnosticos, recetas, procedimientos = [], [], [], []
+        consultas, diagnosticos, recetas, procedimientos, tratamientos = [], [], [], [], []
+        citas_out = []
         for cid, cita in sorted(citas.items(), key=lambda kv: kv[1].get("fecha") or "", reverse=True):
+            citas_out.append({"id_cita": cid, "id_paciente": pid, "fecha": cita.get("fecha"),
+                              "servicio": cita.get("motivo"), "estado": cita.get("estado")})
+            if cita.get("estado") != "atendida":
+                continue
             at = atenciones.get(cid, {})
             consultas.append(
                 {
@@ -263,13 +345,16 @@ class OdontologiaFirebaseAdapter(IRepository):
             diagnosticos += [{**d, "id_consulta": cid} for d in at.get("diagnosticos", [])]
             recetas += [{**r, "id_consulta": cid} for r in at.get("recetas", [])]
             procedimientos += [{**p, "id_consulta": cid} for p in at.get("procedimientos", [])]
+            tratamientos += [{**t, "id_consulta": cid} for t in at.get("tratamientos", [])]
 
         return HistorialOut(
             paciente=self._to_paciente(p_snap.id, p_snap.to_dict()),
+            citas=citas_out,
             consultas=consultas,
             diagnosticos=diagnosticos,
             recetas=recetas,
             procedimientos_dentales=procedimientos,
+            tratamientos=tratamientos,
         )
 
     # 7. Archivar historial
@@ -284,7 +369,9 @@ class OdontologiaFirebaseAdapter(IRepository):
 # Aplica la traducción de errores a los 7 métodos del contrato IRepository
 for _metodo in (
     "registrar_paciente", "buscar_paciente", "get_historial", "registrar_consulta",
-    "agregar_diagnostico", "recetar_medicamento", "archivar_historial",
+    "registrar_cita", "cambiar_cita",
+    "agregar_diagnostico", "recetar_medicamento", "registrar_tratamiento",
+    "registrar_procedimiento", "archivar_historial",
 ):
     setattr(OdontologiaFirebaseAdapter, _metodo,
             _map_google_errors(getattr(OdontologiaFirebaseAdapter, _metodo)))

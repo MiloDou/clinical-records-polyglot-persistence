@@ -28,12 +28,12 @@ export const institutions: Record<InstitutionId, Institution> = {
   dental: {
     id: 'dental', name: 'Clínica Odontológica', shortName: 'Odontología',
     description: 'Atención odontológica con acceso ágil para personal clínico y secretaría.',
-    features: ['appointments', 'consultations', 'diagnoses', 'procedures', 'treatments'],
+    features: ['appointments', 'consultations', 'diagnoses', 'procedures', 'treatments', 'prescriptions'],
   },
   laboratory: {
     id: 'laboratory', name: 'Laboratorio Clínico', shortName: 'Laboratorio',
     description: 'Órdenes de examen y resultados con parámetros variables por estudio.',
-    features: ['lab-orders', 'lab-results'],
+    features: ['lab-orders', 'lab-results', 'diagnoses', 'treatments', 'prescriptions'],
   },
   pediatrics: {
     id: 'pediatrics', name: 'Centro Médico Pediátrico', shortName: 'Pediatría',
@@ -69,30 +69,38 @@ const featureNavigation: Record<SectionId, NavigationItem> = {
 
 export type Workspace = { institution: Institution; commonItems: NavigationItem[]; specialtyItems: NavigationItem[] }
 
-/** Factory Method: builds the institution-specific workspace from one shared UI vocabulary. */
-export function createInstitutionWorkspace(id: InstitutionId): Workspace {
+/** La navegación refleja los permisos de escritura de la cuenta autenticada. */
+export function createInstitutionWorkspace(id: InstitutionId, role = ''): Workspace {
   const institution = institutions[id]
-  const commonItems = commonNavigation
+  const reception = role === 'secretaria'
+  const technician = role === 'tecnico'
+  const alwaysVisible = ['overview', 'search', 'patients', 'histories']
+  const canShow = (feature: SectionId) => {
+    if (reception) return [...alwaysVisible, 'appointments'].includes(feature)
+    if (technician) return [...alwaysVisible, 'lab-orders', 'lab-results'].includes(feature)
+    return [...alwaysVisible, 'archive', ...institution.features].includes(feature)
+  }
+  const commonItems = commonNavigation.filter(({ id: feature }) => canShow(feature))
   const specialtyItems = institution.features
-    .filter((feature) => !commonNavigation.some(({ id: section }) => section === feature))
+    .filter((feature) => canShow(feature) && !commonNavigation.some(({ id: section }) => section === feature))
     .map((feature) => featureNavigation[feature])
   return { institution, commonItems, specialtyItems }
 }
 
 export const sectionDetails: Record<SectionId, { title: string; emptyTitle: string; description: string; action: string }> = {
-  overview: { title: 'Índice de operaciones clínicas', emptyTitle: 'Índice de operaciones clínicas', description: 'Seleccione una operación en el menú lateral o registre un nuevo paciente.', action: 'Iniciar registro' },
-  search: { title: 'Buscar paciente', emptyTitle: 'Búsqueda de pacientes', description: 'Ingrese el DPI en la barra superior para cargar el expediente desde el motor activo.', action: 'Nueva búsqueda' },
-  patients: { title: 'Registro de pacientes', emptyTitle: 'Nuevo expediente clínico', description: 'Registre un paciente en el motor de la institución activa. Si el DPI ya existe, se actualizará su expediente.', action: 'Nuevo registro' },
+  overview: { title: 'Resumen', emptyTitle: 'Resumen', description: 'Busca un paciente o registra uno nuevo.', action: 'Registrar paciente' },
+  search: { title: 'Buscar paciente', emptyTitle: 'Búsqueda de pacientes', description: 'Ingrese el CUI en la barra superior para cargar el expediente desde el sistema activo.', action: 'Nueva búsqueda' },
+  patients: { title: 'Registro de pacientes', emptyTitle: 'Nuevo expediente clínico', description: 'Registre un paciente en el sistema activo. Si el CUI ya existe, se actualizará su expediente.', action: 'Nuevo registro' },
   histories: { title: 'Historial clínico', emptyTitle: 'Seleccione un paciente para consultar su historial', description: 'Las consultas, diagnósticos y recetas se muestran en orden cronológico.', action: 'Buscar paciente' },
-  appointments: { title: 'Citas', emptyTitle: 'Programación de citas', description: 'La cita se registra como una consulta del paciente con su fecha y servicio.', action: 'Programar cita' },
+  appointments: { title: 'Citas', emptyTitle: 'Programación de citas', description: 'Programe una atención con fecha y servicio.', action: 'Programar cita' },
   consultations: { title: 'Consultas', emptyTitle: 'Consultas del paciente', description: 'Cada consulta forma parte del historial clínico y sirve de base para diagnósticos y recetas.', action: 'Registrar consulta' },
   diagnoses: { title: 'Diagnósticos', emptyTitle: 'Diagnósticos clínicos', description: 'El diagnóstico se asocia a una consulta existente del paciente (código CIE-10).', action: 'Agregar diagnóstico' },
-  treatments: { title: 'Tratamientos', emptyTitle: 'Planes de tratamiento', description: 'El plan de tratamiento se registra como una consulta de seguimiento en el historial.', action: 'Indicar tratamiento' },
+  treatments: { title: 'Tratamientos', emptyTitle: 'Planes de tratamiento', description: 'Primero registre un diagnóstico; después vincule el plan a su consulta.', action: 'Indicar tratamiento' },
   prescriptions: { title: 'Recetas', emptyTitle: 'Recetas y medicamentos', description: 'La receta se asocia a una consulta existente con dosis, frecuencia y duración.', action: 'Crear receta' },
-  procedures: { title: 'Procedimientos odontológicos', emptyTitle: 'Procedimientos odontológicos', description: 'El procedimiento se registra como una atención del paciente, con la pieza o área tratada.', action: 'Registrar procedimiento' },
-  'lab-orders': { title: 'Órdenes de examen', emptyTitle: 'Órdenes de examen', description: 'La orden se guarda en el laboratorio con sus exámenes y parámetros embebidos.', action: 'Crear orden' },
-  'lab-results': { title: 'Resultados de laboratorio', emptyTitle: 'Resultados de laboratorio', description: 'Busque al paciente por DPI para ver sus exámenes y parámetros de resultado.', action: 'Ver resultados' },
-  growth: { title: 'Control de crecimiento', emptyTitle: 'Controles de crecimiento', description: 'Peso, talla y perímetro cefálico se registran como una consulta de control.', action: 'Registrar control' },
-  vaccines: { title: 'Vacunación', emptyTitle: 'Registro de vacunación', description: 'Cada dosis aplicada se registra como una consulta en el historial del paciente.', action: 'Registrar vacuna' },
+  procedures: { title: 'Procedimientos odontológicos', emptyTitle: 'Procedimientos odontológicos', description: 'Seleccione una atención y registre el procedimiento y la pieza tratada.', action: 'Registrar procedimiento' },
+  'lab-orders': { title: 'Órdenes de examen', emptyTitle: 'Órdenes de examen', description: 'La orden se guarda pendiente hasta registrar resultados.', action: 'Crear orden' },
+  'lab-results': { title: 'Resultados de laboratorio', emptyTitle: 'Resultados de laboratorio', description: 'Seleccione una orden y registre un parámetro medido.', action: 'Registrar resultado' },
+  growth: { title: 'Control de crecimiento', emptyTitle: 'Controles de crecimiento', description: 'Registre medidas estructuradas para seguir su evolución.', action: 'Registrar control' },
+  vaccines: { title: 'Vacunación', emptyTitle: 'Registro de vacunación', description: 'Registre cada dosis aplicada en el historial.', action: 'Registrar vacuna' },
   archive: { title: 'Archivo clínico', emptyTitle: 'Archivado de historial', description: 'Da de baja administrativa el expediente del paciente cargado; se conserva para consulta.', action: 'Solicitar archivado' },
 }

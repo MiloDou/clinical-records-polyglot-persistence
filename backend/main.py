@@ -1,11 +1,12 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
+from pathlib import Path
 
-# Cargar variables de entorno desde .env
-load_dotenv()
+# Resolver el entorno del backend sin depender del directorio de ejecución.
+load_dotenv(Path(__file__).resolve().parent / ".env")
 
-from routers import auth, consultas, historial, pacientes
+from routers import auth, citas, consultas, especialidades, historial, pacientes
 
 app = FastAPI(
     title="Plataforma de Historiales Clínicos — Persistencia Políglota",
@@ -25,6 +26,7 @@ app.add_middleware(
 # Errores de conectividad con cualquier motor -> 503 (no 400/500 genérico)
 from fastapi import Request
 from fastapi.responses import JSONResponse
+from core.errors import ClinicalConflictError
 
 
 @app.exception_handler(ConnectionError)
@@ -32,10 +34,17 @@ async def connection_error_handler(request: Request, exc: ConnectionError):
     return JSONResponse(status_code=503, content={"detail": str(exc)})
 
 
+@app.exception_handler(ClinicalConflictError)
+async def clinical_conflict_handler(request: Request, exc: ClinicalConflictError):
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+
 # Registrar routers
 app.include_router(auth.router)
 app.include_router(pacientes.router)
 app.include_router(consultas.router)
+app.include_router(citas.router)
+app.include_router(especialidades.router)
 app.include_router(historial.router)
 
 
