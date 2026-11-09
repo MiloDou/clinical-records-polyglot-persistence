@@ -8,7 +8,7 @@ export type InstitutionId = 'hospital' | 'dental' | 'laboratory' | 'pediatrics'
 export type SectionId =
   | 'overview' | 'search' | 'patients' | 'histories' | 'appointments' | 'consultations'
   | 'diagnoses' | 'treatments' | 'prescriptions' | 'procedures' | 'lab-orders'
-  | 'lab-results' | 'growth' | 'vaccines' | 'archive'
+  | 'lab-results' | 'growth' | 'vaccines' | 'archive' | 'integrated-visit'
 
 export type NavigationItem = { id: SectionId; label: string; icon: LucideIcon }
 export type Institution = {
@@ -23,7 +23,7 @@ export const institutions: Record<InstitutionId, Institution> = {
   hospital: {
     id: 'hospital', name: 'Hospital General', shortName: 'Hospital',
     description: 'Atención general, consultas y continuidad del expediente clínico.',
-    features: ['appointments', 'consultations', 'diagnoses', 'treatments', 'prescriptions'],
+    features: ['appointments', 'consultations', 'diagnoses', 'treatments', 'prescriptions', 'integrated-visit'],
   },
   dental: {
     id: 'dental', name: 'Clínica Odontológica', shortName: 'Odontología',
@@ -52,6 +52,7 @@ const commonNavigation: NavigationItem[] = [
   { id: 'diagnoses', label: 'Diagnósticos', icon: ClipboardList },
   { id: 'treatments', label: 'Tratamientos', icon: HeartPulse },
   { id: 'prescriptions', label: 'Recetas', icon: Pill },
+  { id: 'integrated-visit', label: 'Atención integral (atómica)', icon: FilePlus2 },
   { id: 'archive', label: 'Archivo clínico', icon: Archive },
 ]
 
@@ -60,6 +61,7 @@ const featureNavigation: Record<SectionId, NavigationItem> = {
   histories: commonNavigation[3], appointments: commonNavigation[4], consultations: commonNavigation[5],
   diagnoses: commonNavigation[6], treatments: commonNavigation[7], prescriptions: commonNavigation[8],
   archive: commonNavigation[9],
+  'integrated-visit': commonNavigation[10],
   procedures: { id: 'procedures', label: 'Procedimientos', icon: Stethoscope },
   'lab-orders': { id: 'lab-orders', label: 'Órdenes de examen', icon: FlaskConical },
   'lab-results': { id: 'lab-results', label: 'Resultados', icon: Microscope },
@@ -76,6 +78,7 @@ export function createInstitutionWorkspace(id: InstitutionId, role = ''): Worksp
   const technician = role === 'tecnico'
   const alwaysVisible = ['overview', 'search', 'patients', 'histories']
   const canShow = (feature: SectionId) => {
+    if (id === 'hospital' && ['consultations', 'diagnoses', 'treatments', 'prescriptions'].includes(feature)) return false
     if (reception) return [...alwaysVisible, 'appointments'].includes(feature)
     if (technician) return [...alwaysVisible, 'lab-orders', 'lab-results'].includes(feature)
     return [...alwaysVisible, 'archive', ...institution.features].includes(feature)
@@ -103,4 +106,5 @@ export const sectionDetails: Record<SectionId, { title: string; emptyTitle: stri
   growth: { title: 'Control de crecimiento', emptyTitle: 'Controles de crecimiento', description: 'Registre medidas estructuradas para seguir su evolución.', action: 'Registrar control' },
   vaccines: { title: 'Vacunación', emptyTitle: 'Registro de vacunación', description: 'Registre cada dosis aplicada en el historial.', action: 'Registrar vacuna' },
   archive: { title: 'Archivo clínico', emptyTitle: 'Archivado de historial', description: 'Da de baja administrativa el expediente del paciente cargado; se conserva para consulta.', action: 'Solicitar archivado' },
+  'integrated-visit': { title: 'Atención integral', emptyTitle: 'Registrar atención hospitalaria completa', description: 'Cita, consulta, diagnóstico, tratamiento y receta se guardan en una sola transacción; si una parte falla, no se guarda ninguna.', action: 'Registrar atención completa' },
 }

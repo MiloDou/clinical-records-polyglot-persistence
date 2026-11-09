@@ -23,8 +23,10 @@ El enunciado del proyecto exige que cuatro instituciones médicas independientes
 
 - **Hospital General — PostgreSQL (relacional).** Separa pacientes, citas,
   consultas, diagnósticos, tratamientos y recetas mediante claves foráneas.
-  Cada petición de escritura usa una transacción; la cadena de varias
-  peticiones no es una sola transacción.
+  La operación «Atención integral» registra cita, consulta, diagnóstico,
+  tratamiento y receta dentro de una sola transacción ACID. Las rutas clínicas
+  separadas se bloquean para esta institución; ante cualquier fallo se revierte
+  toda la cadena.
 - **Centro Médico Pediátrico — MySQL 8 (relacional).** Sus consultas,
   diagnósticos, controles de crecimiento y vacunas tienen tablas separadas y
   relaciones verificables, adecuadas para registros frecuentes y estructurados.
@@ -32,8 +34,9 @@ El enunciado del proyecto exige que cuatro instituciones médicas independientes
   varían; se almacenan dentro de la orden sin cambiar el esquema para cada
   prueba.
 - **Clínica Odontológica — Firebase Firestore (documental).** Permite
-  administrar pacientes, citas y atenciones sin operar un servidor de base de
-  datos local. La conexión real requiere una cuenta de servicio válida.
+  administrar pacientes, citas y atenciones con un servicio gestionado. En esta
+  aplicación la autenticación de usuarios se realiza con JWT en el backend;
+  Firebase Auth no está configurado. El servidor usa una cuenta de servicio.
 
 ---
 
@@ -112,7 +115,7 @@ un volumen de producción se necesitaría un campo normalizado e indexado.
 | Dimensión | Enfoque en SQL (PostgreSQL & MySQL) | Enfoque en NoSQL (MongoDB & Firestore) |
 |---|---|---|
 | **Modelo de consistencia** | Las tablas y claves foráneas protegen cada escritura. | Los datos embebidos de una orden o atención se actualizan de manera atómica dentro de su documento. |
-| **Transacciones implementadas** | Cada petición abre una transacción y confirma o revierte su propia operación. Una secuencia de peticiones HTTP no constituye una única transacción. | MongoDB modifica una orden por operación. Firestore crea una cita atendida y su atención en un batch; los diagnósticos, tratamientos y recetas se agregan después mediante escrituras independientes. |
+| **Transacciones implementadas** | En Hospital, `/consultas/hospital/encuentro-completo` inserta cita, consulta vinculada a su cita, diagnóstico, tratamiento y receta en una transacción; ante excepción se revierte toda la cadena. Las rutas clínicas individuales devuelven 409 para impedir escrituras parciales. En Pediatría, cada petición confirma o revierte su propia operación. | MongoDB actualiza cada orden en una operación. Firestore crea cita y atención en un batch; diagnósticos, tratamientos y recetas se agregan después mediante escrituras independientes. |
 | **Validación de referencias** | El motor impone las claves foráneas. | Los adaptadores comprueban la existencia del paciente y de la orden o atención. No hay una transacción distribuida entre instituciones. |
 
 ---
@@ -139,7 +142,7 @@ La seguridad implementada se estructura en tres capas:
    - El backend comprueba permisos por operación. La cuenta de secretaría puede registrar pacientes y citas, pero no diagnósticos ni recetas; su respuesta de historial no incluye datos clínicos. El técnico de laboratorio puede registrar órdenes y resultados, pero no prescribir. Las cuentas clínicas realizan esas operaciones.
 3. **Credenciales y Secretos Segregados:**
    - Cada motor cuenta con sus propias credenciales de conexión en variables de entorno segregadas en `.env` (puertos, usuarios, contraseñas y rutas de certificados protegidos en `.gitignore`).
-   - El navegador no contiene contraseñas. Las cuentas locales de demostración usan hash PBKDF2; `JWT_SECRET` se configura en el entorno y, si falta, se genera una clave efímera.
+   - El navegador no contiene contraseñas. Las cuentas locales de demostración usan hash PBKDF2; `JWT_SECRET` se configura en el entorno y, si falta, se genera una clave efímera. La aplicación no usa Firebase Authentication: la cuenta de servicio autentica al backend ante Firestore y JWT autentica a los usuarios.
    - Estas cuentas fijas son para la demostración académica. Para información clínica real todavía haría falta un almacén administrable de usuarios, auditoría y revisión de privacidad.
 
 ---
@@ -155,6 +158,11 @@ Cada adaptador traduce esas operaciones a su motor:
 2. `PediatriaMysqlAdapter` → MySQL.
 3. `LaboratorioMongoAdapter` → MongoDB.
 4. `OdontologiaFirebaseAdapter` → Firestore.
+
+La interfaz hospitalaria presenta una sección «Atención integral» que envía el
+flujo clínico completo en una solicitud. El backend restringe esa ruta al rol
+clínico del hospital y bloquea las escrituras separadas para evitar que el
+flujo deje registros parciales.
 
 - **Independencia de la Lógica de Negocio:** Ningún controlador de FastAPI conoce sentencias SQL ni sintaxis BSON de MongoDB.
 - **Operaciones compartidas y especializadas:** El puerto `IRepository` cubre el ciclo clínico común. Las rutas de resultados, crecimiento, vacunas y procedimientos invocan funciones propias del adaptador correspondiente, con la misma interfaz visual y autorización por institución.
@@ -177,18 +185,21 @@ python tests/test_endpoints.py
 
 ### Resultado de la re-verificación del 8 de noviembre de 2026
 
-- **PostgreSQL / hospital:** 17/17 pruebas de API real, incluidas citas,
-  tratamiento y búsqueda parcial por nombre.
-- **MySQL / pediatría:** 19/19 pruebas de API real, incluidas citas,
-  crecimiento, vacunas y búsqueda parcial por nombre.
-- **MongoDB / laboratorio:** 16/16 pruebas de API real, incluidos parámetros
-  medidos de resultados y búsqueda parcial por nombre.
-- **Firestore / odontología:** 18/18 pruebas de API real, incluidas citas,
-  procedimientos y archivo. Se verificó que la base `(default)` del proyecto
-  corresponde a Firestore Standard en `nam5`; también pasó la búsqueda parcial
+- **PostgreSQL / hospital:** 15/15 pruebas de API real, incluidas atención
+  integral atómica, bloqueo de escrituras separadas y reversión completa al
+  provocar un fallo intermedio.
+- **MySQL / pediatría:** 20/20 pruebas de API real, incluidas citas,
+  crecimiento, vacunas, aislamiento de la ruta hospitalaria y búsqueda parcial
   por nombre.
+- **MongoDB / laboratorio:** 17/17 pruebas de API real, incluidos parámetros
+  medidos de resultados, aislamiento de la ruta hospitalaria y búsqueda parcial
+  por nombre.
+- **Firestore / odontología:** 19/19 pruebas de API real, incluidas citas,
+  procedimientos, archivo y aislamiento de la ruta hospitalaria. Se verificó que
+  la base `(default)` del proyecto corresponde a Firestore Standard en `nam5`;
+  también pasó la búsqueda parcial por nombre.
 
-**Total de integración en vivo: 70/70 en los cuatro motores**, tras iniciar el
+**Total de integración en vivo: 71/71 en los cuatro motores**, tras iniciar el
 contenedor MongoDB. Las pruebas locales de adaptadores Firestore y MongoDB
 pasaron 3/3. También se cargaron y confirmaron tres expedientes sintéticos por
 institución con los scripts de precarga. La credencial de servicio permanece

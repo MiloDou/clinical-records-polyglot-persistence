@@ -14,6 +14,7 @@ from core.models import (
     CitaCambioIn,
     DiagnosticoIn,
     DiagnosticoOut,
+    EncuentroHospitalIn,
     HistorialOut,
     PacienteIn,
     PacienteOut,
@@ -255,6 +256,78 @@ class HospitalPostgresAdapter(IRepository):
         ) for row in rows]
 
     # 3. Registrar consulta
+    def registrar_encuentro_completo(self, datos: EncuentroHospitalIn) -> dict:
+        """Registra cita, consulta, diagnóstico, tratamiento y receta en una transacción."""
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                self._assert_active(cur, id_paciente=datos.id_paciente)
+                cur.execute("SELECT id_medico FROM hospital.medico ORDER BY id_medico LIMIT 1")
+                medico = cur.fetchone()
+                if not medico:
+                    raise ValueError("No hay médico disponible para registrar la atención")
+                medico_id = medico["id_medico"]
+                cur.execute(
+                    """INSERT INTO hospital.cita
+                       (id_paciente, id_medico, fecha_hora, estado_cita, motivo_consulta)
+                       VALUES (%s, %s, %s, 'atendida', %s) RETURNING id_cita""",
+                    (int(datos.id_paciente), medico_id, datos.fecha, datos.motivo),
+                )
+                cita_id = cur.fetchone()["id_cita"]
+                cur.execute(
+                    """INSERT INTO hospital.consulta
+                       (id_cita, id_paciente, id_medico, fecha_consulta, motivo_consulta)
+                       VALUES (%s, %s, %s, %s, %s) RETURNING id_consulta""",
+                    (cita_id, int(datos.id_paciente), medico_id, datos.fecha, datos.motivo),
+                )
+                consulta_id = cur.fetchone()["id_consulta"]
+                cur.execute(
+                    """INSERT INTO hospital.catalogo_cie10 (codigo_cie10, descripcion_estandar)
+                       VALUES (%s, %s) ON CONFLICT (codigo_cie10) DO NOTHING""",
+                    (datos.codigo_cie10, datos.diagnostico[:300]),
+                )
+                cur.execute(
+                    """INSERT INTO hospital.diagnostico
+                       (id_consulta, codigo_cie10, observacion_medico, fecha_diagnostico)
+                       VALUES (%s, %s, %s, %s) RETURNING id_diagnostico""",
+                    (consulta_id, datos.codigo_cie10, datos.diagnostico, datos.fecha.date()),
+                )
+                diagnostico_id = cur.fetchone()["id_diagnostico"]
+                cur.execute(
+                    """INSERT INTO hospital.tratamiento
+                       (id_diagnostico, descripcion_tratamiento, indicaciones_tratamiento, fecha_inicio)
+                       VALUES (%s, %s, %s, %s) RETURNING id_tratamiento""",
+                    (diagnostico_id, datos.tratamiento, datos.indicaciones, datos.fecha.date()),
+                )
+                tratamiento_id = cur.fetchone()["id_tratamiento"]
+                cur.execute(
+                    """SELECT id_medicamento FROM hospital.medicamento
+                       WHERE nombre_medicamento ILIKE %s LIMIT 1""",
+                    (datos.medicamento.strip(),),
+                )
+                medicamento_row = cur.fetchone()
+                if medicamento_row:
+                    medicamento_id = medicamento_row["id_medicamento"]
+                else:
+                    cur.execute(
+                        """INSERT INTO hospital.medicamento
+                           (nombre_medicamento, presentacion_medicamento, concentracion_medicamento)
+                           VALUES (%s, 'Tableta/Oral', 'Estándar') RETURNING id_medicamento""",
+                        (datos.medicamento.strip(),),
+                    )
+                    medicamento_id = cur.fetchone()["id_medicamento"]
+                cur.execute(
+                    """INSERT INTO hospital.receta
+                       (id_tratamiento, id_medicamento, dosis_medicamento,
+                        frecuencia_medicamento, duracion_dias_medicamento)
+                       VALUES (%s, %s, %s, %s, %s) RETURNING id_receta""",
+                    (tratamiento_id, medicamento_id, datos.dosis, datos.frecuencia, datos.duracion_dias),
+                )
+                receta_id = cur.fetchone()["id_receta"]
+            conn.commit()
+        return {"id_cita": cita_id, "id_consulta": consulta_id,
+                "id_diagnostico": diagnostico_id, "id_tratamiento": tratamiento_id,
+                "id_receta": receta_id, "id_paciente": datos.id_paciente}
+
     def registrar_consulta(self, datos: ConsultaIn) -> ConsultaOut:
         with self.get_connection() as conn:
             with conn.cursor() as cur:

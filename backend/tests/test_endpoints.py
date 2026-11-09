@@ -82,6 +82,26 @@ def prueba(nombre, credenciales):
     pid = r.json().get("id_paciente") or r.json().get("id")
     ok(f"[{nombre}] Paciente registrado → id={pid}")
 
+    # El flujo crítico del hospital se persiste de forma indivisible.
+    integrated = requests.post(f"{BASE}/consultas/hospital/encuentro-completo", json={
+        "id_paciente": pid, "fecha": "2026-11-08T10:30:00",
+        "motivo": "Atención integral de prueba", "codigo_cie10": "Z00.0",
+        "diagnostico": "Evaluación general", "tratamiento": "Control clínico",
+        "indicaciones": "Seguimiento según evolución", "medicamento": "Paracetamol 500mg",
+        "dosis": "1 tableta", "frecuencia": "Cada 8 horas", "duracion_dias": 3,
+    }, headers=H)
+    if nombre == "hospital":
+        if integrated.status_code == 201 and all(integrated.json().get(k) for k in (
+            "id_cita", "id_consulta", "id_diagnostico", "id_tratamiento", "id_receta"
+        )):
+            ok("[hospital] Atención integral guardada en una sola transacción")
+        else:
+            falla(f"[hospital] Atención integral ({integrated.status_code}): {integrated.text[:160]}")
+    elif integrated.status_code == 403:
+        ok(f"[{nombre}] Ruta de atención integral hospitalaria aislada")
+    else:
+        falla(f"[{nombre}] Ruta hospitalaria debió rechazar acceso ({integrated.status_code})")
+
     # 3. Buscar paciente por CUI
     r = requests.get(f"{BASE}/pacientes/buscar", params={"dpi": payload["dpi"]}, headers=H)
     if r.status_code == 200 and r.json():
@@ -102,69 +122,94 @@ def prueba(nombre, credenciales):
     else:
         falla(f"[{nombre}] Paciente inexistente devolvió {r.status_code}")
 
-    # 4. Registrar consulta
-    r = requests.post(
-        f"{BASE}/consultas/",
-        json={
-            "id_paciente": pid,
-            "motivo": "Control de rutina — prueba automática",
-            "profesional": "Dr. Sistema",
-        },
-        headers=H,
-    )
-    if r.status_code not in (200, 201):
-        falla(f"[{nombre}] Registrar consulta ({r.status_code}): {r.text[:120]}")
-        return
-    cid = r.json().get("id_consulta") or r.json().get("id")
-    ok(f"[{nombre}] Consulta registrada → id={cid}")
+    if nombre == "hospital":
+        blocked = requests.post(f"{BASE}/consultas/", json={
+            "id_paciente": pid, "motivo": "No debe persistirse por separado"
+        }, headers=H)
+        if blocked.status_code == 409:
+            ok("[hospital] Escrituras clínicas separadas bloqueadas para preservar atomicidad")
+        else:
+            falla(f"[hospital] Escritura clínica separada no bloqueada ({blocked.status_code})")
+        cid = integrated.json().get("id_consulta") if integrated.status_code == 201 else None
+        before = requests.get(f"{BASE}/historial/{pid}", headers=H)
+        rollback = requests.post(f"{BASE}/consultas/hospital/encuentro-completo", json={
+            "id_paciente": pid, "fecha": "2026-11-08T11:30:00",
+            "motivo": "Prueba de reversión", "codigo_cie10": "Z00.0",
+            "diagnostico": "No debe persistir", "tratamiento": "No debe persistir",
+            "medicamento": "X" * 101, "dosis": "1", "frecuencia": "Una vez", "duracion_dias": 1,
+        }, headers=H)
+        after = requests.get(f"{BASE}/historial/{pid}", headers=H)
+        keys = ("consultas", "citas", "diagnosticos", "tratamientos", "recetas")
+        rolled_back = (rollback.status_code == 500 and before.status_code == after.status_code == 200
+                       and all(len(before.json().get(k, [])) == len(after.json().get(k, [])) for k in keys))
+        if rolled_back:
+            ok("[hospital] Fallo intermedio revierte toda la cadena sin registros parciales")
+        else:
+            falla(f"[hospital] Reversión incompleta (HTTP {rollback.status_code})")
+    else:
+        # 4. Registrar consulta
+        r = requests.post(
+            f"{BASE}/consultas/",
+            json={
+                "id_paciente": pid,
+                "motivo": "Control de rutina — prueba automática",
+                "profesional": "Dr. Sistema",
+            },
+            headers=H,
+        )
+        if r.status_code not in (200, 201):
+            falla(f"[{nombre}] Registrar consulta ({r.status_code}): {r.text[:120]}")
+            return
+        cid = r.json().get("id_consulta") or r.json().get("id")
+        ok(f"[{nombre}] Consulta registrada → id={cid}")
 
-    # 5. Agregar diagnóstico
-    r = requests.post(
-        f"{BASE}/consultas/diagnostico",
-        json={
-            "id_consulta": cid,
-            "descripcion": "Sin hallazgos patológicos",
-            "codigo_cie10": "Z00.0",
-        },
-        headers=H,
-    )
-    if r.status_code in (200, 201):
-        ok(f"[{nombre}] Diagnóstico agregado")
-    else:
-        falla(f"[{nombre}] Diagnóstico ({r.status_code}): {r.text[:120]}")
-    r = requests.post(f"{BASE}/consultas/diagnostico", json={
-        "id_consulta": "999999999", "descripcion": "No existe", "codigo_cie10": "Z00.0"
-    }, headers=H)
-    if r.status_code == 404:
-        ok(f"[{nombre}] Consulta inexistente devuelve 404")
-    else:
-        falla(f"[{nombre}] Consulta inexistente devolvió {r.status_code}")
+        # 5. Agregar diagnóstico
+        r = requests.post(
+            f"{BASE}/consultas/diagnostico",
+            json={
+                "id_consulta": cid,
+                "descripcion": "Sin hallazgos patológicos",
+                "codigo_cie10": "Z00.0",
+            },
+            headers=H,
+        )
+        if r.status_code in (200, 201):
+            ok(f"[{nombre}] Diagnóstico agregado")
+        else:
+            falla(f"[{nombre}] Diagnóstico ({r.status_code}): {r.text[:120]}")
+        r = requests.post(f"{BASE}/consultas/diagnostico", json={
+            "id_consulta": "999999999", "descripcion": "No existe", "codigo_cie10": "Z00.0"
+        }, headers=H)
+        if r.status_code == 404:
+            ok(f"[{nombre}] Consulta inexistente devuelve 404")
+        else:
+            falla(f"[{nombre}] Consulta inexistente devolvió {r.status_code}")
 
-    r = requests.post(f"{BASE}/consultas/tratamiento", json={
-        "id_consulta": cid, "descripcion": "Plan de comprobación",
-        "indicaciones": "Seguimiento de comprobación"
-    }, headers=H)
-    if r.status_code == 201:
-        ok(f"[{nombre}] Tratamiento estructurado guardado")
-    else:
-        falla(f"[{nombre}] Tratamiento ({r.status_code}): {r.text[:120]}")
+        r = requests.post(f"{BASE}/consultas/tratamiento", json={
+            "id_consulta": cid, "descripcion": "Plan de comprobación",
+            "indicaciones": "Seguimiento de comprobación"
+        }, headers=H)
+        if r.status_code == 201:
+            ok(f"[{nombre}] Tratamiento estructurado guardado")
+        else:
+            falla(f"[{nombre}] Tratamiento ({r.status_code}): {r.text[:120]}")
 
-    # 6. Recetar medicamento
-    r = requests.post(
-        f"{BASE}/consultas/receta",
-        json={
-            "id_consulta": cid,
-            "medicamento": "Paracetamol 500mg",
-            "dosis": "1 tableta",
-            "frecuencia": "Cada 8 horas",
-            "duracion_dias": 5,
-        },
-        headers=H,
-    )
-    if r.status_code in (200, 201):
-        ok(f"[{nombre}] Receta registrada")
-    else:
-        falla(f"[{nombre}] Receta ({r.status_code}): {r.text[:120]}")
+        # 6. Recetar medicamento
+        r = requests.post(
+            f"{BASE}/consultas/receta",
+            json={
+                "id_consulta": cid,
+                "medicamento": "Paracetamol 500mg",
+                "dosis": "1 tableta",
+                "frecuencia": "Cada 8 horas",
+                "duracion_dias": 5,
+            },
+            headers=H,
+        )
+        if r.status_code in (200, 201):
+            ok(f"[{nombre}] Receta registrada")
+        else:
+            falla(f"[{nombre}] Receta ({r.status_code}): {r.text[:120]}")
 
     if nombre != "laboratorio":
         r = requests.post(f"{BASE}/citas/", json={
@@ -236,10 +281,20 @@ def prueba(nombre, credenciales):
         ok(f"[{nombre}] Historial archivado")
     else:
         falla(f"[{nombre}] Archivar ({r.status_code}): {r.text[:120]}")
-    r = requests.post(f"{BASE}/consultas/", json={
-        "id_paciente": pid, "motivo": "Debe rechazarse"
-    }, headers=H)
-    if r.status_code == 409:
+    if nombre == "hospital":
+        r = requests.post(f"{BASE}/consultas/hospital/encuentro-completo", json={
+            "id_paciente": pid, "fecha": "2026-11-08T12:30:00",
+            "motivo": "Debe rechazarse", "codigo_cie10": "Z00.0",
+            "diagnostico": "No debe guardarse", "tratamiento": "No debe guardarse",
+            "medicamento": "Paracetamol", "dosis": "1", "frecuencia": "Una vez", "duracion_dias": 1,
+        }, headers=H)
+        blocked_status = 409
+    else:
+        r = requests.post(f"{BASE}/consultas/", json={
+            "id_paciente": pid, "motivo": "Debe rechazarse"
+        }, headers=H)
+        blocked_status = 409
+    if r.status_code == blocked_status:
         ok(f"[{nombre}] Historial archivado bloquea escrituras")
     else:
         falla(f"[{nombre}] Historial archivado permitió escritura ({r.status_code})")

@@ -3,7 +3,7 @@
 Fecha: 2026-11-07 · Rama: `backend` · HEAD: `60a7f15`
 Auditor: sesión de Claude Code a pedido de Benjamín · Destinatario: Ronaldo (Milo)
 
-> **Snapshot histórico, sustituido.** Este informe describe el estado del 7 de noviembre y no la entrega actual. La evidencia vigente está en [`Documento_Comparativo_Entrega_II.pdf`](Documento_Comparativo_Entrega_II.pdf) y [`README.md`](../README.md); incluye la búsqueda por nombre y la corrida de 70/70 del 8 de noviembre de 2026.
+> **Snapshot histórico, sustituido.** Este informe describe el estado del 7 de noviembre y no la entrega actual. La evidencia vigente está en [`Documento_Comparativo_Entrega_II.pdf`](Documento_Comparativo_Entrega_II.pdf); incluye la atención hospitalaria atómica, reversión ante fallo intermedio y corrida de 71/71 del 8 de noviembre de 2026.
 
 > **Veredicto backend: ✅ 32/32 en verde** (segunda corrida, con MongoDB y MySQL levantados). En la primera corrida, con
 > Docker apagado, Laboratorio y Pediatría devolvieron 503 reales, lo que confirma el manejo de caídas. Pendientes: frontend

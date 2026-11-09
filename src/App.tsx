@@ -58,7 +58,7 @@ type Field = {
   options?: string[]; maxLength?: number; min?: string; max?: string; pattern?: string; inputMode?: 'numeric' | 'decimal' | 'tel'
   wide?: boolean; optional?: boolean
 }
-type Operation = 'paciente' | 'cita' | 'consulta' | 'diagnostico' | 'receta' | 'tratamiento' | 'procedimiento' | 'resultados' | 'crecimiento' | 'vacuna' | 'archivo'
+type Operation = 'paciente' | 'cita' | 'consulta' | 'diagnostico' | 'receta' | 'tratamiento' | 'procedimiento' | 'resultados' | 'crecimiento' | 'vacuna' | 'archivo' | 'encuentro'
 type FormSpec = { op: Operation; fields: Field[]; toConsulta?: (d: Record<string, string>) => { motivo: string; observaciones?: string; fecha?: string } }
 
 const consultaSelect: Field = { name: 'consulta', label: 'Consulta asociada', type: 'consulta', wide: true }
@@ -80,6 +80,21 @@ const formSpecs: Partial<Record<SectionId, FormSpec>> = {
       { name: 'observaciones', label: 'Observaciones / notas de consulta', type: 'textarea', placeholder: 'Hallazgos, signos vitales, indicaciones', wide: true, optional: true },
     ],
     toConsulta: (d) => ({ motivo: d.motivo, observaciones: d.observaciones }),
+  },
+  'integrated-visit': {
+    op: 'encuentro',
+    fields: [
+      { name: 'date', label: 'Fecha y hora de atención', type: 'datetime-local' },
+      { name: 'motivo', label: 'Motivo de consulta', placeholder: 'Motivo clínico', wide: true },
+      { name: 'code', label: 'Código CIE-10', placeholder: 'Ej. K29.7' },
+      { name: 'diagnosis', label: 'Diagnóstico', placeholder: 'Descripción clínica', wide: true },
+      { name: 'plan', label: 'Plan de tratamiento', placeholder: 'Tratamiento indicado', wide: true },
+      { name: 'indications', label: 'Indicaciones', type: 'textarea', optional: true, wide: true },
+      { name: 'medicine', label: 'Medicamento', placeholder: 'Nombre genérico' },
+      { name: 'dose', label: 'Dosis', placeholder: 'Ej. 500 mg' },
+      { name: 'frequency', label: 'Frecuencia', placeholder: 'Ej. Cada 8 horas' },
+      { name: 'days', label: 'Duración (días)', type: 'number', min: '1', max: '3650' },
+    ],
   },
   appointments: {
     op: 'cita',
@@ -353,7 +368,20 @@ function App() {
         return
       }
 
-      if (spec.op === 'cita') {
+      if (spec.op === 'encuentro') {
+        const r = await apiRequest('/consultas/hospital/encuentro-completo', token, {
+          method: 'POST',
+          body: JSON.stringify({
+            id_paciente: patientId, fecha: data.date, motivo: data.motivo,
+            codigo_cie10: data.code.trim(), diagnostico: data.diagnosis,
+            tratamiento: data.plan, indicaciones: data.indications || null,
+            medicamento: data.medicine, dosis: data.dose,
+            frecuencia: data.frequency, duracion_dias: Number(data.days),
+          }),
+        })
+        if (!r.ok) return fail(r)
+        setNotice({ kind: 'ok', text: `Atención completa guardada como una sola transacción (cita #${r.data.id_cita}, consulta #${r.data.id_consulta}).` })
+      } else if (spec.op === 'cita') {
         const r = await apiRequest('/citas/', token, {
           method: 'POST',
           body: JSON.stringify({

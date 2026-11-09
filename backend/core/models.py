@@ -178,6 +178,22 @@ class TratamientoIn(BaseSchema):
     fecha_fin: Optional[date] = None
 
 
+class EncuentroHospitalIn(BaseSchema):
+    """Flujo hospitalario completo guardado en una sola transacción SQL."""
+    id_paciente: Any
+    fecha: datetime
+    motivo: str = Field(min_length=2, max_length=300)
+    observaciones: Optional[str] = None
+    codigo_cie10: str = Field(min_length=3, max_length=10)
+    diagnostico: str = Field(min_length=2, max_length=500)
+    tratamiento: str = Field(min_length=2, max_length=300)
+    indicaciones: Optional[str] = None
+    medicamento: str = Field(min_length=2, max_length=150)
+    dosis: str = Field(min_length=1, max_length=20)
+    frecuencia: str = Field(min_length=1, max_length=20)
+    duracion_dias: int = Field(gt=0, le=3650)
+
+
 class ResultadoParametro(BaseSchema):
     parametro: str = Field(min_length=1, max_length=100)
     valor: str = Field(min_length=1, max_length=100)
