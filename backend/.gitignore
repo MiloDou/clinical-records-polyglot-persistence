@@ -1,0 +1,31 @@
+﻿# Entornos virtuales
+.venv/
+venv/
+ENV/
+env/
+
+# Variables de entorno y credenciales sensibles (CRÍTICO)
+.env
+*.env
+serviceAccountKey.json
+*.pem
+*.key
+
+# Archivos de caché de Python
+__pycache__/
+*.py[cod]
+*.class
+.pytest_cache/
+
+# Editores y sistema operativo
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Frontend (por si se instalan librerías más adelante)
+node_modules/
+dist/
+
+*.sql
+!scripts/mysql_pediatria.sql

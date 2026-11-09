@@ -1,46 +1,137 @@
-# Plataforma de historiales clínicos con persistencia poliglota
+# Plataforma de historiales clínicos
 
-## Descripción
+Proyecto académico cliente-servidor con React, FastAPI y cuatro adaptadores de persistencia:
+hospital → PostgreSQL, pediatría → MySQL, laboratorio → MongoDB y odontología → Firestore.
+La institución se obtiene del usuario autenticado; el navegador no contiene contraseñas.
 
-Proyecto académico del curso **Bases de Datos II** orientado al diseño de una plataforma para administrar historiales clínicos en una red de instituciones médicas independientes. El proyecto compara la implementación de reglas de negocio comunes sobre distintos motores de bases de datos, manteniendo una experiencia uniforme para sus usuarios.
+## Preparar las bases
 
-La solución se plantea con una arquitectura hexagonal. La lógica del dominio debe mantenerse desacoplada de los motores de persistencia, y las operaciones deben dirigirse al motor correspondiente a la institución del usuario autenticado.
+Clona la rama de entrega y trabaja desde la carpeta del repositorio:
 
-## Alcance del proyecto
+```bash
+git clone --branch backend --single-branch https://github.com/MiloDou/clinical-records-polyglot-persistence.git
+cd clinical-records-polyglot-persistence
+```
 
-El alcance final contempla cuatro instituciones: hospital general, clínica odontológica, laboratorio clínico y centro médico pediátrico. La consigna establece que cada institución utilice un motor distinto, sin repetirlo. Las alternativas definidas para el proyecto son PostgreSQL, MySQL, MongoDB y Firebase; la asignación y su justificación deben quedar documentadas.
+Prepara los cuatro motores antes de iniciar la API:
 
-La entrega académica presentada como base de este repositorio desarrolla los modelos del **Hospital General** y del **Centro Médico Pediátrico**. Incluye entidades, atributos, operaciones previstas, clasificación de información y diagramas. La documentación asigna PostgreSQL al Hospital General por sus requisitos de integridad referencial y transacciones. La cobertura de las otras dos instituciones y la asignación completa de motores forman parte del trabajo pendiente.
+1. **PostgreSQL.** En una instalación nueva, crea `clinica_poliglota` y restaura
+   `backend/scripts/postgres_localhost-2026_09_06_17_23_24-dump.sql`:
+   `createdb -U postgres clinica_poliglota` y después
+   `psql -U postgres -d clinica_poliglota < backend/scripts/postgres_localhost-2026_09_06_17_23_24-dump.sql`.
+   No reimportes el dump sobre una base que ya contiene expedientes.
+2. **MySQL 8.** Ejecuta `mysql -u root -p < backend/scripts/mysql_pediatria.sql`.
+   El script crea el esquema `pediatria_db` y sus tablas con `CREATE TABLE IF NOT EXISTS`.
+3. **MongoDB.** Inicia el servidor local o un contenedor vacío:
+   `docker run -d --name mongo-laboratorio -p 127.0.0.1:27017:27017 mongo:latest`.
+   Las colecciones se crean al primer registro.
+4. **Firestore.** Habilita Firestore en el proyecto y coloca la credencial de servicio en
+   `backend/serviceAccountKey.json`. Este archivo se obtiene desde Firebase Console;
+   no está ni debe estar en GitHub. `FIREBASE_CREDENTIALS_PATH`
+   en `backend/.env` acepta una ruta absoluta o una ruta relativa a `backend/`.
+   Solo el backend usa Firebase Admin; el frontend llama a FastAPI.
 
-## Objetivos
+## Configuración
 
-- Diseñar y mantener historiales clínicos para las instituciones incluidas en el proyecto.
-- Registrar pacientes, consultas, diagnósticos y tratamientos de acuerdo con las reglas de cada institución.
-- Comparar modelos relacionales y documentales y justificar la ubicación de los datos.
-- Aplicar transacciones, consistencia, control de acceso y protección de información clínica según el motor utilizado.
-- Enrutar las operaciones a la persistencia de la institución correspondiente sin duplicar la lógica de negocio.
+Copia `backend/.env.example` a `backend/.env` y ajusta conexiones y
+`JWT_SECRET` (una cadena aleatoria larga, distinta de cualquier ejemplo).
+El archivo `.env` de la raíz solo define `VITE_API_URL` para el cliente. Los dos
+archivos cumplen funciones distintas. Si `JWT_SECRET` queda vacío, el servidor
+genera uno efímero y las sesiones se invalidan al reiniciar.
 
-## Estado
+## Ejecutar
 
-El material de referencia corresponde a la fase de análisis y modelado. Este repositorio aún no contiene una aplicación ejecutable ni adaptadores de base de datos. La descripción distingue lo presentado en la entrega base de las capacidades previstas para el proyecto completo.
+Linux/macOS (Windows: usa `.venv\Scripts\activate` para activar el entorno y
+`.venv\Scripts\python` para ejecutar Python):
 
-## Trabajo pendiente
+```bash
+cd backend
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn main:app --host 127.0.0.1 --port 8000
+```
 
-1. Completar los modelos de la clínica odontológica y el laboratorio clínico.
-2. Revisar los modelos a partir de la retroalimentación recibida y definir la asignación final de los cuatro motores.
-3. Implementar la aplicación cliente-servidor y los adaptadores de persistencia bajo la arquitectura hexagonal.
-4. Implementar operaciones equivalentes entre instituciones y motores.
-5. Documentar consistencia, decisiones de modelado, seguridad, autorización y configuración de cada motor.
+En otra terminal, desde `Code`:
 
-## Información y seguridad
+```bash
+npm ci
+npm run dev
+```
 
-Los modelos clasifican la información en pública, confidencial y restringida. Los datos de identidad y contacto requieren acceso controlado; los historiales, consultas, diagnósticos, tratamientos y registros pediátricos son información clínica restringida. La implementación deberá aplicar permisos acordes con el rol del usuario y evitar almacenar credenciales o datos clínicos reales en el repositorio.
+Abre `http://localhost:5173`. El acceso muestra una pantalla de inicio de
+sesión; la institución se selecciona automáticamente a partir de la cuenta.
+La búsqueda permite usar el CUI/DPI completo o una coincidencia parcial del
+nombre (mínimo dos caracteres); si hay varios resultados, selecciona el paciente.
 
-## Motores considerados
+## Datos sintéticos para la demostración
 
-- PostgreSQL
-- MySQL
-- MongoDB
-- Firebase
+Los scripts crean tres expedientes ficticios por institución. Ejecútalos solo
+una vez en bases preparadas para la demo; agregan consultas y datos clínicos y
+no son idempotentes. Inicia primero la API y, desde `backend`, ejecuta:
 
-La asignación definitiva debe cubrir una institución por motor y justificarse en la documentación comparativa del proyecto.
+```bash
+./.venv/bin/python scripts/seed_data.py
+./.venv/bin/python scripts/seed_personalizado.py
+```
+
+En Windows, sustituye `.venv/bin/python` por `.venv\Scripts\python`. Los datos
+son sintéticos y no deben usarse para decisiones médicas.
+
+## Cuentas locales de demostración
+
+La contraseña de las seis cuentas es `Test1234!`. Las contraseñas se almacenan
+como hash PBKDF2 en el backend; estas cuentas son exclusivamente para la demo,
+no para desplegar con pacientes reales.
+
+| Institución | Cuenta | Permisos principales |
+|---|---|---|
+| Hospital | `medico@hospital.gt` | Atención clínica y archivo |
+| Pediatría | `medico@pediatria.gt` | Atención, crecimiento, vacunas y archivo |
+| Laboratorio | `tecnico@laboratorio.gt` | Pacientes, órdenes y resultados |
+| Laboratorio | `medico@laboratorio.gt` | Atención clínica y archivo |
+| Odontología | `secretaria@dental.gt` | Pacientes y citas; historial clínico redactado |
+| Odontología | `odontologo@dental.gt` | Atención, procedimientos y archivo |
+
+## Verificar
+
+La suite de integración crea expedientes **sintéticos**, verifica lectura y
+operaciones clínicas, y termina archivándolos. Desde `backend`:
+
+```bash
+./.venv/bin/python tests/test_endpoints.py
+```
+
+Si todavía falta Firestore, prueba los tres motores disponibles:
+
+```bash
+TEST_INSTITUTIONS=hospital,pediatria,laboratorio ./.venv/bin/python tests/test_endpoints.py
+```
+
+La prueba local del adaptador odontológico no necesita credenciales y **no**
+sustituye una prueba de integración con Firestore real:
+
+```bash
+./.venv/bin/python -m unittest tests.test_firestore_adapter -v
+```
+
+Para verificar el cliente: `npm run build`. Para una comprobación rápida
+del servidor: `curl http://127.0.0.1:8000/health`. El 8 de noviembre de 2026,
+la suite de integración pasó **70/70 pruebas** con los cuatro motores activos,
+incluidas búsquedas parciales por nombre. Las pruebas unitarias de adaptadores
+Firestore y MongoDB pasaron **3/3**. Las precargas también se comprobaron: hay
+tres expedientes sintéticos de demostración por institución.
+
+## Alcance y límites
+
+Los cuatro motores exponen registro, búsqueda, consulta, diagnóstico, tratamiento,
+receta, historial y archivo. Hospital, pediatría y odontología también manejan
+citas separadas; pediatría registra crecimiento y vacunas en tablas; laboratorio
+guarda resultados variables dentro de la orden; odontología guarda procedimientos
+en la atención. Las operaciones separadas por peticiones HTTP no forman una sola
+transacción global.
+
+El sistema usa cuentas de demostración; antes de manejar información real se
+requiere un almacén de usuarios administrable, políticas de acceso y auditoría,
+cifrado y revisión de privacidad. El chequeo `/health` solo indica que la API
+responde, no que las cuatro bases estén disponibles.
