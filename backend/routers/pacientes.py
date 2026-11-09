@@ -1,5 +1,5 @@
 import re
-from typing import Any, Optional
+from typing import Any, List, Optional, Union
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from core.models import PacienteIn, PacienteOut
@@ -32,12 +32,28 @@ def registrar_paciente(
         )
 
 
-@router.get("/buscar", response_model=PacienteOut)
-def buscar_paciente_por_dpi(
-    dpi: str = Query(..., description="DPI o CUI del paciente a buscar"),
+@router.get("/buscar", response_model=Union[PacienteOut, List[PacienteOut]])
+def buscar_paciente(
+    dpi: Optional[str] = Query(None, description="DPI o CUI del paciente a buscar"),
+    nombre: Optional[str] = Query(None, min_length=2, max_length=120, description="Coincidencia parcial del nombre"),
     _user: dict = Depends(require_permission("patient_read")),
     repo: IRepository = Depends(get_repository),
 ):
+    if (dpi is None) == (nombre is None):
+        raise HTTPException(status_code=422, detail="Indique exactamente uno de estos criterios: dpi o nombre")
+
+    if nombre is not None:
+        termino = " ".join(nombre.split())
+        if len(termino) < 2:
+            raise HTTPException(status_code=422, detail="Escriba al menos 2 caracteres del nombre")
+        pacientes = repo.buscar_pacientes_por_nombre(termino)
+        if not pacientes:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No se encontraron pacientes cuyo nombre coincida con '{termino}'",
+            )
+        return pacientes
+
     cui = "".join(char for char in dpi if char not in " .-")
     if not re.fullmatch(r"[0-9]{13}", cui):
         raise HTTPException(status_code=422, detail="El CUI debe contener exactamente 13 dígitos")

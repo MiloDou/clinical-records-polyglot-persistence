@@ -229,6 +229,31 @@ class HospitalPostgresAdapter(IRepository):
             fecha_registro=str(row["fecha_registro"]),
         )
 
+    def buscar_pacientes_por_nombre(self, nombre: str) -> List[PacienteOut]:
+        termino = f"%{' '.join(nombre.split())}%"
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT id_paciente, nombre_paciente, dpi_cui, fecha_nacimiento,
+                           genero, telefono_paciente, direccion_paciente, estado_paciente, fecha_registro
+                    FROM hospital.paciente
+                    WHERE nombre_paciente ILIKE %s
+                    ORDER BY nombre_paciente
+                    LIMIT 25;
+                    """,
+                    (termino,),
+                )
+                rows = cur.fetchall()
+        return [PacienteOut(
+            id_paciente=row["id_paciente"], id=row["id_paciente"],
+            nombre=row["nombre_paciente"], dpi=row["dpi_cui"],
+            fecha_nacimiento=str(row["fecha_nacimiento"]), genero=row["genero"],
+            telefono=str(row["telefono_paciente"]) if row["telefono_paciente"] else None,
+            direccion=row["direccion_paciente"], estado=row["estado_paciente"],
+            fecha_registro=str(row["fecha_registro"]),
+        ) for row in rows]
+
     # 3. Registrar consulta
     def registrar_consulta(self, datos: ConsultaIn) -> ConsultaOut:
         with self.get_connection() as conn:

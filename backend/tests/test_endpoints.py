@@ -64,7 +64,7 @@ def prueba(nombre, credenciales):
 
     # 2. Registrar paciente
     payload = {
-        "nombre": f"Paciente Test {nombre.title()}",
+        "nombre": f"Paciente Prueba {nombre.title()} {secrets.token_hex(3)}",
         "dpi": str(1_000_000_000_000 + secrets.randbelow(9_000_000_000_000)),
         "fecha_nacimiento": "1995-06-20",
         "telefono": "55550000",
@@ -88,6 +88,14 @@ def prueba(nombre, credenciales):
         ok(f"[{nombre}] Búsqueda por CUI exitosa")
     else:
         falla(f"[{nombre}] Búsqueda por CUI ({r.status_code})")
+    r = requests.get(f"{BASE}/pacientes/buscar", params={"nombre": payload["nombre"]}, headers=H)
+    if r.status_code == 200 and any(
+        str(coincidencia.get("id_paciente") or coincidencia.get("id")) == str(pid)
+        for coincidencia in r.json()
+    ):
+        ok(f"[{nombre}] Búsqueda parcial por nombre exitosa")
+    else:
+        falla(f"[{nombre}] Búsqueda por nombre ({r.status_code}): {r.text[:120]}")
     r = requests.get(f"{BASE}/pacientes/buscar", params={"dpi": "9999999999999"}, headers=H)
     if r.status_code == 404:
         ok(f"[{nombre}] Paciente inexistente devuelve 404")

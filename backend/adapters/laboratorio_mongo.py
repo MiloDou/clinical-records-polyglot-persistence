@@ -1,4 +1,5 @@
 import os
+import re
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 from bson import ObjectId
@@ -151,6 +152,20 @@ class LaboratorioMongoAdapter(IRepository):
             estado=doc.get("estado", "activo"),
             fecha_registro=str(doc.get("fecha_registro", "")),
         )
+
+    def buscar_pacientes_por_nombre(self, nombre: str) -> List[PacienteOut]:
+        patron = re.escape(" ".join(nombre.split()))
+        docs = self.col_pacientes.find(
+            {"nombre": {"$regex": patron, "$options": "i"}}
+        ).sort("nombre", 1).limit(25)
+        return [PacienteOut(
+            id_paciente=str(doc.get("_id")), id=str(doc.get("_id")),
+            nombre=doc.get("nombre", ""), dpi=doc.get("dpi", ""),
+            fecha_nacimiento=str(doc.get("fecha_nacimiento", "")),
+            telefono=doc.get("telefono"), genero=doc.get("genero"),
+            direccion=doc.get("direccion"), estado=doc.get("estado", "activo"),
+            fecha_registro=str(doc.get("fecha_registro", "")),
+        ) for doc in docs]
 
     # 3. Registrar orden pendiente; los resultados se agregan después de procesar la muestra.
     def registrar_consulta(self, datos: ConsultaIn) -> ConsultaOut:

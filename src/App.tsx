@@ -195,6 +195,7 @@ function App() {
   const [signedInUser, setSignedInUser] = useState('')
   const [signedInRole, setSignedInRole] = useState('')
   const [searchDpi, setSearchDpi] = useState<string>('')
+  const [patientMatches, setPatientMatches] = useState<any[]>([])
   const [notFoundCui, setNotFoundCui] = useState('')
   const [patientResult, setPatientResult] = useState<any | null>(null)
   const [historyResult, setHistoryResult] = useState<any | null>(null)
@@ -255,6 +256,7 @@ function App() {
     setNotice(null)
     setPatientResult(null)
     setHistoryResult(null)
+    setPatientMatches([])
     setSearchDpi('')
   }
 
@@ -272,28 +274,49 @@ function App() {
 
   async function handleSearch(event?: React.FormEvent) {
     if (event) event.preventDefault()
-    const dpi = normalizeCui(searchDpi)
-    if (!isValidCuiFormat(searchDpi)) {
-      setNotice({ kind: 'error', text: 'Escriba los 13 dígitos del CUI. Puede incluir espacios o guiones.' })
+    const term = searchDpi.trim()
+    const looksLikeCui = /^[0-9 .-]+$/.test(term)
+    const dpi = normalizeCui(term)
+    if (!term || (looksLikeCui && !isValidCuiFormat(term)) || (!looksLikeCui && term.length < 2)) {
+      setNotice({ kind: 'error', text: looksLikeCui ? 'Escriba los 13 dígitos del CUI. Puede incluir espacios o guiones.' : 'Escriba al menos 2 caracteres del nombre.' })
       return
     }
     setLoading(true)
     setNotice(null)
     setNotFoundCui('')
+    setPatientMatches([])
     try {
-      const r = await apiRequest(`/pacientes/buscar?dpi=${encodeURIComponent(dpi)}`, token)
+      const key = looksLikeCui ? 'dpi' : 'nombre'
+      const value = looksLikeCui ? dpi : term
+      const r = await apiRequest(`/pacientes/buscar?${key}=${encodeURIComponent(value)}`, token)
       if (r.ok) {
-        setPatientResult(r.data)
-        setHistoryResult(null)
-        if (section === 'overview' || section === 'patients') setSection('search')
-        await refreshHistory(patientIdOf(r.data))
+        const patients = Array.isArray(r.data) ? r.data : [r.data]
+        if (patients.length === 1) {
+          setPatientResult(patients[0])
+          setHistoryResult(null)
+          if (section === 'overview' || section === 'patients') setSection('search')
+          await refreshHistory(patientIdOf(patients[0]))
+        } else {
+          setPatientResult(null)
+          setHistoryResult(null)
+          setPatientMatches(patients)
+          if (section === 'overview' || section === 'patients') setSection('search')
+        }
       } else {
         setPatientResult(null)
         setHistoryResult(null)
-        if (r.status === 404) setNotFoundCui(dpi)
-        setNotice({ kind: r.status === 503 ? 'warn' : 'error', text: r.status === 404 ? `No se encontró un paciente con ese CUI en ${workspace.institution.name}. Puede registrarlo desde “Pacientes”; el CUI quedará listo para copiar.` : r.message })
+        if (r.status === 404 && looksLikeCui) setNotFoundCui(dpi)
+        setNotice({ kind: r.status === 503 ? 'warn' : 'error', text: r.status === 404 && looksLikeCui ? `No se encontró un paciente con ese CUI en ${workspace.institution.name}. Puede registrarlo desde “Pacientes”; el CUI quedará listo para copiar.` : r.message })
       }
     } finally { setLoading(false) }
+  }
+
+  async function selectSearchMatch(patient: any) {
+    setPatientMatches([])
+    setPatientResult(patient)
+    setHistoryResult(null)
+    setSearchDpi(patient.dpi)
+    await refreshHistory(patientIdOf(patient))
   }
 
   async function handleFormSubmit(data: Record<string, string>) {
@@ -505,13 +528,12 @@ function App() {
           <form className="patient-search" onSubmit={handleSearch}>
             <label className="search-input-wrap">
               <Search size={19} aria-hidden="true" />
-              <span className="sr-only">Buscar por CUI (13 dígitos)</span>
+              <span className="sr-only">Buscar por CUI o nombre del paciente</span>
               <input
                 value={searchDpi}
                 onChange={(e) => setSearchDpi(e.target.value)}
-                placeholder="Buscar paciente por CUI (13 dígitos)"
-                aria-label="Búsqueda de pacientes por CUI, 13 dígitos"
-                inputMode="numeric"
+                placeholder="Buscar por CUI o nombre del paciente"
+                aria-label="Búsqueda de pacientes por CUI o nombre"
                 autoComplete="off"
               />
             </label>
@@ -529,6 +551,17 @@ function App() {
             </div>
           )}
 
+          {patientMatches.length > 0 && (
+            <section className="patient-search-results" aria-label="Coincidencias de pacientes">
+              <h2>Coincidencias ({patientMatches.length})</h2>
+              {patientMatches.map((patient) => (
+                <button key={patientIdOf(patient)} type="button" onClick={() => selectSearchMatch(patient)}>
+                  <strong>{patient.nombre}</strong><span>CUI {patient.dpi}</span>
+                </button>
+              ))}
+            </section>
+          )}
+
           {patientResult && <PatientCard patient={patientResult} history={historyResult} showClinical={signedInRole !== 'secretaria'} />}
           {section === 'appointments' && historyResult?.citas?.length > 0 && (
             <AppointmentList citas={historyResult.citas} loading={loading} onUpdate={updateAppointment} />
@@ -537,11 +570,11 @@ function App() {
           {section === 'overview' ? (
             <EmptyOverview onAction={() => { changeSection('patients'); setFormOpen(true) }} />
           ) : READ_ONLY_SECTIONS.includes(section) || !spec ? (
-            !patientResult && <EmptyState icon={section === 'lab-results' ? 'lab' : 'search'} title={details.emptyTitle} description={details.description} />
+            !patientResult && patientMatches.length === 0 && <EmptyState icon={section === 'lab-results' ? 'lab' : 'search'} title={details.emptyTitle} description={details.description} />
           ) : (
             <section className="operation-area" aria-label={details.title}>
               {spec.op !== 'paciente' && !patientResult ? (
-                <EmptyState icon="search" title="Seleccione un paciente" description={`Busque al paciente por CUI en la barra superior para ${details.action.toLowerCase()} en ${workspace.institution.name}.`} />
+                <EmptyState icon="search" title="Seleccione un paciente" description={`Busque al paciente por CUI o nombre en la barra superior para ${details.action.toLowerCase()} en ${workspace.institution.name}.`} />
               ) : spec.op !== 'paciente' && isArchived ? (
                 <EmptyState icon="archive" title="Historial archivado" description="Este paciente tiene baja administrativa; no se admiten nuevos registros clínicos." />
               ) : needsConsulta && consultas.length === 0 ? (

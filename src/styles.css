@@ -124,7 +124,7 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px s
 .institution-tabs button:hover { color: var(--deep-red); }
 .institution-tabs .tab-active { color: var(--deep-red); }
 .institution-tabs .tab-active::after { background: var(--signal-red); clip-path: polygon(0 0, 100% 0, 92% 100%, 0 100%); }
-.patient-search { display: grid; grid-template-columns: minmax(160px, 1fr) minmax(190px, 270px) auto; gap: 12px; margin-top: 25px; }
+.patient-search { display: grid; grid-template-columns: minmax(160px, 1fr) auto; gap: 12px; margin-top: 25px; }
 .search-input-wrap, .service-filter { min-height: 45px; display: flex; align-items: center; gap: 10px; padding: 0 13px; border: 1px solid #bcb7ad; background: #fff; color: #57534d; }
 .search-input-wrap input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--ink); font-size: 12px; }
 .search-input-wrap input:focus-visible { outline: 0; }
@@ -251,6 +251,11 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px s
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
 .connected { display: flex; align-items: center; gap: 6px; color: #1e592f; font-size: 9px; letter-spacing: .09em; font-weight: 700; }
+.patient-search-results { display: grid; gap: 8px; margin-top: 18px; }
+.patient-search-results h2 { margin: 0; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+.patient-search-results button { min-height: 52px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 14px; border: 1px solid var(--line); background: white; color: var(--ink); text-align: left; cursor: pointer; }
+.patient-search-results button:hover, .patient-search-results button:focus-visible { border-color: var(--deep-red); background: #fffdf8; }
+.patient-search-results span { flex: 0 0 auto; color: var(--muted); font-size: 12px; }
 .patient-card { margin-top: 20px; padding: 18px; border: 1px solid var(--line); background: white; }
 .patient-card h3 { margin: 0 0 8px; font-size: 18px; }
 .patient-card p { margin: 4px 0; font-size: 13px; color: #403d38; }

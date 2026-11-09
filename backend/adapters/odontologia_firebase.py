@@ -175,6 +175,18 @@ class OdontologiaFirebaseAdapter(IRepository):
         snap = self._find_by_dpi(dpi.strip())
         return self._to_paciente(snap.id, snap.to_dict()) if snap else None
 
+    @_map_google_errors
+    def buscar_pacientes_por_nombre(self, nombre: str) -> list[PacienteOut]:
+        termino = " ".join(nombre.split()).casefold()
+        coincidencias = []
+        for snap in self.db.collection("pacientes").stream():
+            data = snap.to_dict() or {}
+            if termino in str(data.get("nombre", "")).casefold():
+                coincidencias.append(self._to_paciente(snap.id, data))
+                if len(coincidencias) == 25:
+                    break
+        return sorted(coincidencias, key=lambda paciente: paciente.nombre.casefold())
+
     # 3. Registrar consulta (cita + atención en un batch atómico)
     def registrar_consulta(self, datos: ConsultaIn) -> ConsultaOut:
         pid = str(datos.id_paciente)
@@ -368,7 +380,7 @@ class OdontologiaFirebaseAdapter(IRepository):
 
 # Aplica la traducción de errores a los 7 métodos del contrato IRepository
 for _metodo in (
-    "registrar_paciente", "buscar_paciente", "get_historial", "registrar_consulta",
+    "registrar_paciente", "buscar_paciente", "buscar_pacientes_por_nombre", "get_historial", "registrar_consulta",
     "registrar_cita", "cambiar_cita",
     "agregar_diagnostico", "recetar_medicamento", "registrar_tratamiento",
     "registrar_procedimiento", "archivar_historial",

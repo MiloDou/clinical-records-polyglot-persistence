@@ -1,6 +1,6 @@
-﻿"""
+"""
 Script de población de datos personalizados (Brayan)
-Registra 3 pacientes completos en MySQL (Pediatría) y 3 en Firebase (Odontología).
+Registra datos clínicos ficticios para demostración: 3 pacientes en MySQL y 3 en Firestore. No usar para decisiones clínicas.
 """
 import sys
 import requests
@@ -9,17 +9,19 @@ BASE_URL = "http://localhost:8000"
 
 CREDENCIALES = {
     "pediatria": {"usuario": "medico@pediatria.gt", "password": "Test1234!"},
-    "odontologia": {"usuario": "secretaria@dental.gt", "password": "Test1234!"}
+    "odontologia": {"usuario": "odontologo@dental.gt", "password": "Test1234!"}
 }
 
-# --- CASOS CLÍNICOS REALES: PEDIATRÍA (MySQL) ---
+# --- CASOS CLÍNICOS SINTÉTICOS: PEDIATRÍA (MySQL) ---
 PACIENTES_PEDIATRIA = [
     {
         "paciente": {
-            "nombre": "Esteban David Alvarado Gómez",
-            "dpi": "3589012340101",
+            "nombre": 'Paciente Demo Pediatría 01',
+            "dpi": '0000000000007',
             "fecha_nacimiento": "2021-08-15",
-            "telefono": "54412233",
+            "telefono": '00000007',
+            "tutor_nombre": "Tutor de demostración 01",
+            "tutor_telefono": '00000021',
             "genero": "Masculino"
         },
         "consulta": {
@@ -40,10 +42,12 @@ PACIENTES_PEDIATRIA = [
     },
     {
         "paciente": {
-            "nombre": "Valeria Nicole Paredes Mazariegos",
-            "dpi": "3678123450101",
+            "nombre": 'Paciente Demo Pediatría 02',
+            "dpi": '0000000000008',
             "fecha_nacimiento": "2023-03-10",
-            "telefono": "55331199",
+            "telefono": '00000008',
+            "tutor_nombre": "Tutor de demostración 02",
+            "tutor_telefono": '00000022',
             "genero": "Femenino"
         },
         "consulta": {
@@ -64,10 +68,12 @@ PACIENTES_PEDIATRIA = [
     },
     {
         "paciente": {
-            "nombre": "Matías Emilio Sagastume Ruiz",
-            "dpi": "3745901230101",
+            "nombre": 'Paciente Demo Pediatría 03',
+            "dpi": '0000000000009',
             "fecha_nacimiento": "2018-11-25",
-            "telefono": "59128844",
+            "telefono": '00000009',
+            "tutor_nombre": "Tutor de demostración 03",
+            "tutor_telefono": '00000023',
             "genero": "Masculino"
         },
         "consulta": {
@@ -88,14 +94,14 @@ PACIENTES_PEDIATRIA = [
     }
 ]
 
-# --- CASOS CLÍNICOS REALES: ODONTOLOGÍA (Firebase) ---
+# --- CASOS CLÍNICOS SINTÉTICOS: ODONTOLOGÍA (Firebase) ---
 PACIENTES_ODONTOLOGIA = [
     {
         "paciente": {
-            "nombre": "Andrea Celeste Montenegro Paz",
-            "dpi": "2544789650101",
+            "nombre": 'Paciente Demo Odontología 01',
+            "dpi": '0000000000010',
             "fecha_nacimiento": "1997-06-18",
-            "telefono": "58774411",
+            "telefono": '00000010',
             "genero": "Femenino"
         },
         "consulta": {
@@ -116,10 +122,10 @@ PACIENTES_ODONTOLOGIA = [
     },
     {
         "paciente": {
-            "nombre": "Rodrigo Alejandro Samayoa Cifuentes",
-            "dpi": "2411987540101",
+            "nombre": 'Paciente Demo Odontología 02',
+            "dpi": '0000000000011',
             "fecha_nacimiento": "1993-12-04",
-            "telefono": "53001122",
+            "telefono": '00000011',
             "genero": "Masculino"
         },
         "consulta": {
@@ -140,10 +146,10 @@ PACIENTES_ODONTOLOGIA = [
     },
     {
         "paciente": {
-            "nombre": "Lucía Alejandra Villeda Marroquín",
-            "dpi": "2699887710101",
+            "nombre": 'Paciente Demo Odontología 03',
+            "dpi": '0000000000012',
             "fecha_nacimiento": "2001-09-22",
-            "telefono": "51229933",
+            "telefono": '00000012',
             "genero": "Femenino"
         },
         "consulta": {

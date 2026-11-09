@@ -1,4 +1,4 @@
-from typing import Any, Optional, Protocol
+from typing import Any, List, Optional, Protocol
 from core.models import (
     ConsultaIn,
     ConsultaOut,
@@ -31,6 +31,10 @@ class IRepository(Protocol):
 
     def buscar_paciente(self, dpi: str) -> Optional[PacienteOut]:
         """Busca un paciente activo o registrado por su DPI/CUI."""
+        ...
+
+    def buscar_pacientes_por_nombre(self, nombre: str) -> List[PacienteOut]:
+        """Busca hasta 25 pacientes por coincidencia parcial de nombre."""
         ...
 
     def get_historial(self, id_paciente: Any) -> HistorialOut:

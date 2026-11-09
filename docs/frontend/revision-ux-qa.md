@@ -2,6 +2,8 @@
 
 Fecha de revisión: 25 de octubre de 2026
 
+> **Revisión histórica de la maqueta original.** Después se conectó el cliente al backend. Para el estado y las verificaciones vigentes, consulta [`README.md`](../../README.md) y [`Documento_Comparativo_Entrega_II.pdf`](../Documento_Comparativo_Entrega_II.pdf).
+
 ## Alcance
 
 Se revisó la maqueta frontend en `frontend`: portada de declaración pública, navegación clínica, cambio local de institución, estados sin servidor y formularios de demostración. La fase solicitada no incluye API, autenticación, reglas de dominio en servidor ni persistencia, por lo que no se presentan esos flujos como operativos.

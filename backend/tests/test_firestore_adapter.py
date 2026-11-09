@@ -74,6 +74,9 @@ class FakeQuery:
             result.append(FakeSnapshot(FakeDocument(self.db, collection, doc_id), data))
         return result[:self.max_items]
 
+    def stream(self):
+        return self.get()
+
 
 class FakeCollection(FakeQuery):
     def document(self, doc_id=None):
@@ -104,6 +107,19 @@ class FakeFirestore:
 
 
 class FirestoreAdapterTest(unittest.TestCase):
+    def test_busqueda_parcial_por_nombre(self):
+        adapter = OdontologiaFirebaseAdapter(client=FakeFirestore())
+        primera = adapter.registrar_paciente(PacienteIn(
+            nombre="María Elena Prueba", dpi="1234567890123",
+            fecha_nacimiento="1990-02-03",
+        ))
+        adapter.registrar_paciente(PacienteIn(
+            nombre="Pedro López", dpi="2234567890123",
+            fecha_nacimiento="1991-02-03",
+        ))
+        resultados = adapter.buscar_pacientes_por_nombre("elena")
+        self.assertEqual([paciente.id_paciente for paciente in resultados], [primera.id_paciente])
+
     def test_historial_odontologico_completo(self):
         adapter = OdontologiaFirebaseAdapter(client=FakeFirestore())
         p = adapter.registrar_paciente(PacienteIn(

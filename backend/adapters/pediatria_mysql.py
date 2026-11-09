@@ -3,7 +3,7 @@
 import os
 from contextlib import contextmanager
 from datetime import date, datetime
-from typing import Any, Optional
+from typing import Any, List, Optional
 
 import mysql.connector
 from mysql.connector import Error, IntegrityError
@@ -101,6 +101,16 @@ class PediatriaMysqlAdapter:
             cur.execute("SELECT * FROM paciente WHERE dpi_cui=%s", (dpi,))
             row = cur.fetchone()
             return self._patient(row) if row else None
+
+    def buscar_pacientes_por_nombre(self, nombre: str) -> List[PacienteOut]:
+        termino = f"%{' '.join(nombre.split())}%"
+        with self._connection() as conn:
+            cur = conn.cursor(dictionary=True)
+            cur.execute(
+                "SELECT * FROM paciente WHERE nombre_paciente LIKE %s ORDER BY nombre_paciente LIMIT 25",
+                (termino,),
+            )
+            return [self._patient(row) for row in cur.fetchall()]
 
     def registrar_consulta(self, datos: ConsultaIn) -> ConsultaOut:
         fecha = datos.fecha or datetime.now()

@@ -35,7 +35,7 @@ Prepara los cuatro motores antes de iniciar la API:
 
 Copia `backend/.env.example` a `backend/.env` y ajusta conexiones y
 `JWT_SECRET` (una cadena aleatoria larga, distinta de cualquier ejemplo).
-El archivo `Code/.env` solo define `VITE_API_URL` para el cliente. Los dos
+El archivo `.env` de la raíz solo define `VITE_API_URL` para el cliente. Los dos
 archivos cumplen funciones distintas. Si `JWT_SECRET` queda vacío, el servidor
 genera uno efímero y las sesiones se invalidan al reiniciar.
 
@@ -61,6 +61,22 @@ npm run dev
 
 Abre `http://localhost:5173`. El acceso muestra una pantalla de inicio de
 sesión; la institución se selecciona automáticamente a partir de la cuenta.
+La búsqueda permite usar el CUI/DPI completo o una coincidencia parcial del
+nombre (mínimo dos caracteres); si hay varios resultados, selecciona el paciente.
+
+## Datos sintéticos para la demostración
+
+Los scripts crean tres expedientes ficticios por institución. Ejecútalos solo
+una vez en bases preparadas para la demo; agregan consultas y datos clínicos y
+no son idempotentes. Inicia primero la API y, desde `backend`, ejecuta:
+
+```bash
+./.venv/bin/python scripts/seed_data.py
+./.venv/bin/python scripts/seed_personalizado.py
+```
+
+En Windows, sustituye `.venv/bin/python` por `.venv\Scripts\python`. Los datos
+son sintéticos y no deben usarse para decisiones médicas.
 
 ## Cuentas locales de demostración
 
@@ -80,7 +96,7 @@ no para desplegar con pacientes reales.
 ## Verificar
 
 La suite de integración crea expedientes **sintéticos**, verifica lectura y
-operaciones clínicas, y termina archivándolos. Desde `Code/backend`:
+operaciones clínicas, y termina archivándolos. Desde `backend`:
 
 ```bash
 ./.venv/bin/python tests/test_endpoints.py
@@ -100,11 +116,11 @@ sustituye una prueba de integración con Firestore real:
 ```
 
 Para verificar el cliente: `npm run build`. Para una comprobación rápida
-del servidor: `curl http://127.0.0.1:8000/health`. La última verificación
-completa, con los cuatro motores activos, aprobó 66/66 pruebas. En la repetición
-del 8 de noviembre de 2026, 53 pasaron y MongoDB devolvió 503 porque Docker no
-estaba disponible; se documenta para distinguir una dependencia apagada de un
-fallo del adaptador.
+del servidor: `curl http://127.0.0.1:8000/health`. El 8 de noviembre de 2026,
+la suite de integración pasó **70/70 pruebas** con los cuatro motores activos,
+incluidas búsquedas parciales por nombre. Las pruebas unitarias de adaptadores
+Firestore y MongoDB pasaron **3/3**. Las precargas también se comprobaron: hay
+tres expedientes sintéticos de demostración por institución.
 
 ## Alcance y límites
 

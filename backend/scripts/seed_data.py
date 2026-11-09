@@ -1,13 +1,13 @@
 """
-Script de precarga de datos de prueba para la Entrega II.
-Carga datos clínicos en los motores asignados a Ronaldo / Emilio:
+Script de precarga de datos sintéticos para la Entrega II.
+Carga ejemplos ficticios en los motores asignados a Ronaldo / Emilio:
 - Hospital General (PostgreSQL)
 - Laboratorio Clínico (MongoDB)
 
 (Las partes de Pediatría y Odontología corresponden a Brayan).
 
 Uso:
-cd Code/backend
+cd backend
 source .venv/bin/activate
 python scripts/seed_data.py
 """
@@ -16,6 +16,10 @@ import sys
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+from dotenv import load_dotenv
+
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
+
 from core.models import ConsultaIn, DiagnosticoIn, PacienteIn, RecetaIn
 from core.routing import get_adapter_for_institution
 
@@ -23,12 +27,12 @@ SEED_DATA = {
     "hospital": [
         {
             "paciente": PacienteIn(
-                nombre="Carlos Roberto Gómez López",
-                dpi="1234567890101",
+                nombre='Paciente Demo Hospital 01',
+                dpi='0000000000001',
                 fecha_nacimiento="1980-04-12",
-                telefono="55214488",
+                telefono='00000001',
                 genero="Masculino",
-                direccion="Zona 11, Ciudad de Guatemala",
+                direccion='Dirección ficticia',
             ),
             "consulta": ConsultaIn(
                 id_paciente="",
@@ -50,12 +54,12 @@ SEED_DATA = {
         },
         {
             "paciente": PacienteIn(
-                nombre="Elena Patricia Morales Ruiz",
-                dpi="2345678900101",
+                nombre='Paciente Demo Hospital 02',
+                dpi='0000000000002',
                 fecha_nacimiento="1975-09-28",
-                telefono="54129933",
+                telefono='00000002',
                 genero="Femenino",
-                direccion="Zona 7, Mixco",
+                direccion='Dirección ficticia',
             ),
             "consulta": ConsultaIn(
                 id_paciente="",
@@ -77,12 +81,12 @@ SEED_DATA = {
         },
         {
             "paciente": PacienteIn(
-                nombre="Jorge Mario Castillo Santos",
-                dpi="3456789010101",
+                nombre='Paciente Demo Hospital 03',
+                dpi='0000000000003',
                 fecha_nacimiento="1992-11-05",
-                telefono="59001122",
+                telefono='00000003',
                 genero="Masculino",
-                direccion="Zona 1, Villa Nueva",
+                direccion='Dirección ficticia',
             ),
             "consulta": ConsultaIn(
                 id_paciente="",
@@ -106,10 +110,10 @@ SEED_DATA = {
     "laboratorio": [
         {
             "paciente": PacienteIn(
-                nombre="Ana Lucía Contreras Vela",
-                dpi="7890123450101",
+                nombre='Paciente Demo Laboratorio 01',
+                dpi='0000000000004',
                 fecha_nacimiento="1988-06-14",
-                telefono="59998877",
+                telefono='00000004',
                 genero="Femenino",
             ),
             "consulta": ConsultaIn(
@@ -132,10 +136,10 @@ SEED_DATA = {
         },
         {
             "paciente": PacienteIn(
-                nombre="Marco Antonio Barrientos",
-                dpi="8901234560101",
+                nombre='Paciente Demo Laboratorio 02',
+                dpi='0000000000005',
                 fecha_nacimiento="1995-12-03",
-                telefono="57776655",
+                telefono='00000005',
                 genero="Masculino",
             ),
             "consulta": ConsultaIn(
@@ -158,10 +162,10 @@ SEED_DATA = {
         },
         {
             "paciente": PacienteIn(
-                nombre="Silvia Regina Cordero",
-                dpi="9012345670101",
+                nombre='Paciente Demo Laboratorio 03',
+                dpi='0000000000006',
                 fecha_nacimiento="1983-02-21",
-                telefono="52223344",
+                telefono='00000006',
                 genero="Femenino",
             ),
             "consulta": ConsultaIn(
